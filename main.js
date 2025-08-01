@@ -125,30 +125,43 @@ document.addEventListener('DOMContentLoaded', () => {
     const armGroup = new THREE.Group();
 
     function createArm(side = 'left') {
+        // Position VOR und unter die Kamera
+        const baseX = side === 'left' ? -0.23 : 0.23;
+        const baseY = -0.20;
+        const baseZ = -0.45;
+
+        // Oberarm
         const upper = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.07, 0.09, 0.3, 20),
+            new THREE.CylinderGeometry(0.06, 0.09, 0.28, 20),
             new THREE.MeshPhongMaterial({ color: 0xd2a77b })
         );
-        upper.position.set(side === 'left' ? -0.16 : 0.16, -0.18, -0.32);
-        upper.rotation.z = side === 'left' ? 0.5 : -0.5;
+        upper.position.set(0, 0, 0);
 
+        // Unterarm
         const lower = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.065, 0.08, 0.27, 20),
+            new THREE.CylinderGeometry(0.055, 0.08, 0.23, 20),
             new THREE.MeshPhongMaterial({ color: 0xc79a72 })
         );
-        lower.position.set(side === 'left' ? -0.25 : 0.25, -0.38, -0.37);
-        lower.rotation.z = side === 'left' ? 0.5 : -0.5;
+        lower.position.set(0, -0.14, -0.13);
+        lower.rotation.x = Math.PI / 12 * (side === 'left' ? 1 : -1);
 
+        // Hand
         const hand = new THREE.Mesh(
-            new THREE.SphereGeometry(0.06, 12, 12),
+            new THREE.SphereGeometry(0.055, 12, 12),
             new THREE.MeshPhongMaterial({ color: 0xbb916b })
         );
-        hand.position.set(side === 'left' ? -0.33 : 0.33, -0.52, -0.38);
+        hand.position.set(0, -0.24, -0.23);
 
+        // Arm-Gruppe
         const arm = new THREE.Group();
         arm.add(upper);
         arm.add(lower);
         arm.add(hand);
+
+        // Arm-Gruppe korrekt relativ zum Kopf verschieben
+        arm.position.set(baseX, baseY, baseZ);
+        // Optional: für ein leichtes "nach innen" kippen
+        arm.rotation.y = side === 'left' ? 0.09 : -0.09;
 
         return arm;
     }
@@ -158,6 +171,8 @@ document.addEventListener('DOMContentLoaded', () => {
     armGroup.add(leftArm);
     armGroup.add(rightArm);
 
+    // Optional: Arm-Gruppe für beide Arme zusammen (leicht nach innen rotieren für Ego-Feeling)
+    armGroup.position.set(0, -0.05, -0.20);
     camera.add(armGroup);
     scene.add(camera);
 
@@ -188,11 +203,11 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             // Arme wippen lassen
-            const swing = moving ? Math.sin(walkTime) * 0.14 : 0;
-            leftArm.position.y = -0.19 + swing;
-            rightArm.position.y = -0.19 - swing;
-            leftArm.rotation.x = swing * 0.4;
-            rightArm.rotation.x = -swing * 0.4;
+            const swing = moving ? Math.sin(walkTime) * 0.08 : 0;
+            leftArm.position.y = -0.20 + swing;
+            rightArm.position.y = -0.20 - swing;
+            leftArm.rotation.x = swing * 0.25;
+            rightArm.rotation.x = -swing * 0.25;
 
             prevTime = time;
         }
@@ -219,19 +234,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ----------- PauseScreen Resume & Home-Button -----------
     if (resumeBtn) {
-    resumeBtn.addEventListener('click', () => {
-        // Klick-Event auf den Canvas leitet PointerLock ein
-        controls.lock(); // Das muss durch einen echten User-Event passieren!
-        // Verstecke den PauseScreen erst, wenn locked!
-    });
-}
-
-controls.addEventListener('lock', () => {
-    blocker.style.display = 'none';
-    if (pauseScreen) pauseScreen.style.display = 'none';
-    // Spiel läuft weiter!
-});
-
+        resumeBtn.addEventListener('click', () => {
+            controls.lock();
+            // PauseScreen wird erst versteckt, wenn locked!
+        });
+    }
     if (toHomeBtn) {
         toHomeBtn.addEventListener('click', () => {
             if (pauseScreen) pauseScreen.style.display = 'none';
