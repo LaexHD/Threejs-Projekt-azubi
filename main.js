@@ -1,9 +1,13 @@
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
-import { PointerLockControls } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/controls/PointerLockControls.js';
+import * as THREE from 'three';
+import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+
+let controls;
+let armTarget = null;
+let armModel = null;
 
 document.addEventListener('DOMContentLoaded', () => {
-
-    // ----------- Homescreen & PauseScreen-Elemente -----------
+    // DOM Elemente
     const homescreen = document.getElementById('homescreen');
     const startGameBtn = document.getElementById('startGame');
     const blocker = document.getElementById('blocker');
@@ -11,24 +15,28 @@ document.addEventListener('DOMContentLoaded', () => {
     const resumeBtn = document.getElementById('resumeBtn');
     const toHomeBtn = document.getElementById('toHomeBtn');
 
-    // ----------- THREE.js Grundsetup -----------
+    // THREE.js Setup
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x22262d);
 
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 1000);
     camera.position.set(0, 1.7, 3);
+
+    // WICHTIG: Near Plane klein halten!
+    camera.near = 0.01;
+    camera.updateProjectionMatrix();
 
     const renderer = new THREE.WebGLRenderer();
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
 
-    // ----------- Licht -----------
+    // LICHT
     scene.add(new THREE.AmbientLight(0xffffff, 0.4));
     const light = new THREE.DirectionalLight(0xffffff, 0.9);
     light.position.set(5, 10, 7);
     scene.add(light);
 
-    // ----------- Büro-Boden und Wände -----------
+    // RAUM (wie gehabt)
     const ground = new THREE.Mesh(
         new THREE.PlaneGeometry(10, 10),
         new THREE.MeshPhongMaterial({ color: 0x888888 })
@@ -50,14 +58,13 @@ document.addEventListener('DOMContentLoaded', () => {
     makeWall(0.2, 3, 10, -5, 1.5, 0);
     makeWall(0.2, 3, 10, 5, 1.5, 0);
 
-    // ----------- Tisch und Stuhl -----------
+    // Tisch und Stuhl
     const desk = new THREE.Mesh(
         new THREE.BoxGeometry(1.8, 0.1, 0.8),
         new THREE.MeshPhongMaterial({ color: 0x996633 })
     );
     desk.position.set(0, 0.75, -2);
     scene.add(desk);
-
     for (const dx of [-0.8, 0.8]) {
         for (const dz of [-0.35, 0.35]) {
             const leg = new THREE.Mesh(
@@ -68,14 +75,12 @@ document.addEventListener('DOMContentLoaded', () => {
             scene.add(leg);
         }
     }
-
     const seat = new THREE.Mesh(
         new THREE.CylinderGeometry(0.3, 0.3, 0.08, 32),
         new THREE.MeshPhongMaterial({ color: 0x444488 })
     );
     seat.position.set(-0.5, 0.45, -2);
     scene.add(seat);
-
     const back = new THREE.Mesh(
         new THREE.BoxGeometry(0.3, 0.3, 0.05),
         new THREE.MeshPhongMaterial({ color: 0x222244 })
@@ -83,16 +88,14 @@ document.addEventListener('DOMContentLoaded', () => {
     back.position.set(-0.5, 0.62, -2.14);
     scene.add(back);
 
-    // ----------- First Person Controls -----------
-    const controls = new PointerLockControls(camera, renderer.domElement);
-
-    // PointerLock/PauseScreen-Logik:
+    // Controls
+    controls = new PointerLockControls(camera, renderer.domElement);
+    blocker.addEventListener('click', () => controls.lock());
     controls.addEventListener('lock', () => {
         blocker.style.display = 'none';
         if (pauseScreen) pauseScreen.style.display = 'none';
     });
     controls.addEventListener('unlock', () => {
-        // Zeige PauseScreen nur, wenn das Spiel läuft (Homescreen ausgeblendet)
         if (homescreen.style.display === 'none') {
             if (pauseScreen) pauseScreen.style.display = 'flex';
         } else {
@@ -100,9 +103,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    blocker.addEventListener('click', () => { controls.lock(); });
-
-    // ----------- Bewegung -----------  
+    // Bewegung
     const velocity = new THREE.Vector3();
     const direction = new THREE.Vector3();
     const speed = 3.2;
@@ -121,69 +122,47 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.code === 'KeyD') keys.d = false;
     });
 
-    // ----------- Arme (First Person) -----------
-    const armGroup = new THREE.Group();
+    // ARM FOLGE-GROUP (NICHT an die Kamera hängen!)
+    armTarget = new THREE.Group();
+    scene.add(armTarget);
 
-    function createArm(side = 'left') {
-        // Position VOR und unter die Kamera
-        const baseX = side === 'left' ? -0.23 : 0.23;
-        const baseY = -0.20;
-        const baseZ = -0.45;
+    // Debug-Box (auskommentieren für Justage)
+    // const debugBox = new THREE.Mesh(
+    //     new THREE.BoxGeometry(0.13, 0.13, 0.13),
+    //     new THREE.MeshNormalMaterial()
+    // );
+    // armTarget.add(debugBox);
 
-        // Oberarm
-        const upper = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.06, 0.09, 0.28, 20),
-            new THREE.MeshPhongMaterial({ color: 0xd2a77b })
-        );
-        upper.position.set(0, 0, 0);
-
-        // Unterarm
-        const lower = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.055, 0.08, 0.23, 20),
-            new THREE.MeshPhongMaterial({ color: 0xc79a72 })
-        );
-        lower.position.set(0, -0.14, -0.13);
-        lower.rotation.x = Math.PI / 12 * (side === 'left' ? 1 : -1);
-
-        // Hand
-        const hand = new THREE.Mesh(
-            new THREE.SphereGeometry(0.055, 12, 12),
-            new THREE.MeshPhongMaterial({ color: 0xbb916b })
-        );
-        hand.position.set(0, -0.24, -0.23);
-
-        // Arm-Gruppe
-        const arm = new THREE.Group();
-        arm.add(upper);
-        arm.add(lower);
-        arm.add(hand);
-
-        // Arm-Gruppe korrekt relativ zum Kopf verschieben
-        arm.position.set(baseX, baseY, baseZ);
-        // Optional: für ein leichtes "nach innen" kippen
-        arm.rotation.y = side === 'left' ? 0.09 : -0.09;
-
-        return arm;
+    // ARM LADEN
+    const loader = new GLTFLoader();
+loader.load(
+    './RobotArm.glb',
+    function (gltf) {
+        armModel = gltf.scene.clone();
+        armModel.scale.set(1.1, 1.1, 1.1);
+        armModel.position.set(0, 0, 0);
+        // Minecraft-Arm nach vorne:
+        armModel.rotation.set(0.5, Math.PI / 20, 10);
+        armTarget.add(armModel);
+        armTarget.visible = true;
+        window.armModel = armModel; // Für Debugging im Browser
+    },
+    undefined,
+    function (error) {
+        console.error('Fehler beim Laden der GLB:', error);
     }
+);
 
-    const leftArm = createArm('left');
-    const rightArm = createArm('right');
-    armGroup.add(leftArm);
-    armGroup.add(rightArm);
 
-    // Optional: Arm-Gruppe für beide Arme zusammen (leicht nach innen rotieren für Ego-Feeling)
-    armGroup.position.set(0, -0.05, -0.20);
-    camera.add(armGroup);
-    scene.add(camera);
 
-    // ----------- Animation Loop -----------
+    // Animation Loop
     let prevTime = performance.now();
     let walkTime = 0;
 
     function animate() {
         requestAnimationFrame(animate);
 
-        if (controls.isLocked) {
+        if (controls && controls.isLocked) {
             const time = performance.now();
             const delta = (time - prevTime) / 1000;
 
@@ -202,28 +181,47 @@ document.addEventListener('DOMContentLoaded', () => {
                 walkTime = 0;
             }
 
-            // Arme wippen lassen
-            const swing = moving ? Math.sin(walkTime) * 0.08 : 0;
-            leftArm.position.y = -0.20 + swing;
-            rightArm.position.y = -0.20 - swing;
-            leftArm.rotation.x = swing * 0.25;
-            rightArm.rotation.x = -swing * 0.25;
+            // ARM-Position relativ zur Kamera, immer im Sichtfeld!
+            const camDir = new THREE.Vector3();
+            camera.getWorldDirection(camDir);
+
+            // Basis: Kamera-Position
+            armTarget.position.copy(camera.position);
+
+            // Minecraft-Style: leicht nach vorn, rechts/unten (diese Werte evtl. feintunen)
+            armTarget.position.add(
+                camDir.clone().multiplyScalar(0.43) // vor Spieler
+            );
+            // Rechts/unten
+            const right = new THREE.Vector3();
+            camera.getWorldDirection(camDir);
+            right.crossVectors(camera.up, camDir).normalize();
+            armTarget.position.add(right.multiplyScalar(-0.20)); // nach rechts (Spielersicht)
+            armTarget.position.y -= 0.19;
+
+            // Arm folgt Kopfbewegung:
+            armTarget.quaternion.copy(camera.quaternion);
+
+            // ARM SCHWINGEN LASSEN
+            if (armModel) {
+                const swing = moving ? Math.sin(walkTime) * 0.27 : 0;
+                armModel.rotation.x = Math.PI / 2 + swing * 0.38;
+            }
 
             prevTime = time;
         }
-
         renderer.render(scene, camera);
     }
     animate();
 
-    // ----------- Responsive -----------  
+    // Responsive
     window.addEventListener('resize', () => {
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    // ----------- Homescreen LOGIK -----------
+    // Homescreen-Logik
     startGameBtn.addEventListener('click', () => {
         homescreen.style.opacity = '0';
         setTimeout(() => {
@@ -232,24 +230,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 400);
     });
 
-    // ----------- PauseScreen Resume & Home-Button -----------
-    if (resumeBtn) {
-        resumeBtn.addEventListener('click', () => {
-            controls.lock();
-            // PauseScreen wird erst versteckt, wenn locked!
-        });
-    }
+    // Pause/Resume
+    if (resumeBtn) resumeBtn.addEventListener('click', () => controls.lock());
     if (toHomeBtn) {
         toHomeBtn.addEventListener('click', () => {
             if (pauseScreen) pauseScreen.style.display = 'none';
             homescreen.style.display = '';
-            setTimeout(() => {
-                homescreen.style.opacity = '1';
-            }, 10);
+            setTimeout(() => { homescreen.style.opacity = '1'; }, 10);
         });
     }
-
-    // ----------- Optional: PauseScreen auch mit ESC schließen -----------
     document.addEventListener('keydown', (e) => {
         if (e.code === 'Escape') {
             if (!controls.isLocked && pauseScreen && pauseScreen.style.display === 'flex') {
@@ -258,5 +247,4 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     });
-
 });
