@@ -5,6 +5,8 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 let controls;
 let armTarget = null;
 let armModel = null;
+let armTargetLeft = null;
+let armModelLeft = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     // DOM Elemente
@@ -22,7 +24,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.01, 1000);
     camera.position.set(0, 1.7, 3);
 
-    // WICHTIG: Near Plane klein halten!
     camera.near = 0.01;
     camera.updateProjectionMatrix();
 
@@ -36,7 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
     light.position.set(5, 10, 7);
     scene.add(light);
 
-    // RAUM (wie gehabt)
+    // RAUM
     const ground = new THREE.Mesh(
         new THREE.PlaneGeometry(10, 10),
         new THREE.MeshPhongMaterial({ color: 0x888888 })
@@ -58,7 +59,6 @@ document.addEventListener('DOMContentLoaded', () => {
     makeWall(0.2, 3, 10, -5, 1.5, 0);
     makeWall(0.2, 3, 10, 5, 1.5, 0);
 
-    // Tisch und Stuhl
     const desk = new THREE.Mesh(
         new THREE.BoxGeometry(1.8, 0.1, 0.8),
         new THREE.MeshPhongMaterial({ color: 0x996633 })
@@ -103,7 +103,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Bewegung
     const velocity = new THREE.Vector3();
     const direction = new THREE.Vector3();
     const speed = 3.2;
@@ -122,40 +121,49 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.code === 'KeyD') keys.d = false;
     });
 
-    // ARM FOLGE-GROUP (NICHT an die Kamera hängen!)
+    // Rechte Arm-Gruppe
     armTarget = new THREE.Group();
     scene.add(armTarget);
 
-    // Debug-Box (auskommentieren für Justage)
-    // const debugBox = new THREE.Mesh(
-    //     new THREE.BoxGeometry(0.13, 0.13, 0.13),
-    //     new THREE.MeshNormalMaterial()
-    // );
-    // armTarget.add(debugBox);
+    // Linke Arm-Gruppe
+    armTargetLeft = new THREE.Group();
+    scene.add(armTargetLeft);
 
-    // ARM LADEN
+    // ARM LADEN (rechts)
     const loader = new GLTFLoader();
-loader.load(
-    './RobotArm.glb',
-    function (gltf) {
-        armModel = gltf.scene.clone();
-        armModel.scale.set(1.1, 1.1, 1.1);
-        armModel.position.set(0, 0, 0);
-        // Minecraft-Arm nach vorne:
-        armModel.rotation.set(0.5, Math.PI / 20, 10);
-        armTarget.add(armModel);
-        armTarget.visible = true;
-        window.armModel = armModel; // Für Debugging im Browser
-    },
-    undefined,
-    function (error) {
-        console.error('Fehler beim Laden der GLB:', error);
-    }
-);
+    loader.load(
+        './RobotArm.glb',
+        function (gltf) {
+            armModel = gltf.scene.clone();
+            armModel.scale.set(1.1, 1.1, 1.1);
+            armModel.position.set(0, 0, 0);
+            armModel.rotation.set(0.5, Math.PI / 20, 10);
+            armTarget.add(armModel);
+            armTarget.visible = true;
+        },
+        undefined,
+        function (error) {
+            console.error('Fehler beim Laden der GLB (rechts):', error);
+        }
+    );
 
+    // ARM LADEN (links)
+    loader.load(
+        './RobotArm.glb',
+        function (gltf) {
+            armModelLeft = gltf.scene.clone();
+            armModelLeft.scale.set(-1.1, 1.1, 1.1);   // Spiegeln an der X-Achse
+            armModelLeft.position.set(0, 0, 0);
+            armModelLeft.rotation.set(0.5, -Math.PI / 20, -10); // leicht gespiegelt
+            armTargetLeft.add(armModelLeft);
+            armTargetLeft.visible = true;
+        },
+        undefined,
+        function (error) {
+            console.error('Fehler beim Laden der GLB (links):', error);
+        }
+    );
 
-
-    // Animation Loop
     let prevTime = performance.now();
     let walkTime = 0;
 
@@ -181,31 +189,37 @@ loader.load(
                 walkTime = 0;
             }
 
-            // ARM-Position relativ zur Kamera, immer im Sichtfeld!
             const camDir = new THREE.Vector3();
             camera.getWorldDirection(camDir);
 
-            // Basis: Kamera-Position
+            // RECHTER Arm
             armTarget.position.copy(camera.position);
-
-            // Minecraft-Style: leicht nach vorn, rechts/unten (diese Werte evtl. feintunen)
-            armTarget.position.add(
-                camDir.clone().multiplyScalar(0.43) // vor Spieler
-            );
-            // Rechts/unten
+            armTarget.position.add(camDir.clone().multiplyScalar(0.35));
             const right = new THREE.Vector3();
             camera.getWorldDirection(camDir);
             right.crossVectors(camera.up, camDir).normalize();
-            armTarget.position.add(right.multiplyScalar(-0.20)); // nach rechts (Spielersicht)
-            armTarget.position.y -= 0.19;
-
-            // Arm folgt Kopfbewegung:
+            armTarget.position.add(right.multiplyScalar(-0.4));
+            armTarget.position.y -= 0.35;
             armTarget.quaternion.copy(camera.quaternion);
 
-            // ARM SCHWINGEN LASSEN
             if (armModel) {
                 const swing = moving ? Math.sin(walkTime) * 0.27 : 0;
                 armModel.rotation.x = Math.PI / 2 + swing * 0.38;
+            }
+
+            // LINKER Arm
+            armTargetLeft.position.copy(camera.position);
+            armTargetLeft.position.add(camDir.clone().multiplyScalar(0.35));
+            const left = new THREE.Vector3();
+            camera.getWorldDirection(camDir);
+            left.crossVectors(camDir, camera.up).normalize();
+            armTargetLeft.position.add(left.multiplyScalar(-0.4));
+            armTargetLeft.position.y -= 0.35;
+            armTargetLeft.quaternion.copy(camera.quaternion);
+
+            if (armModelLeft) {
+                const swing2 = moving ? Math.sin(walkTime) * -0.27 : 0;
+                armModelLeft.rotation.x = Math.PI / 2 + swing2 * 0.38;
             }
 
             prevTime = time;
@@ -214,14 +228,12 @@ loader.load(
     }
     animate();
 
-    // Responsive
     window.addEventListener('resize', () => {
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    // Homescreen-Logik
     startGameBtn.addEventListener('click', () => {
         homescreen.style.opacity = '0';
         setTimeout(() => {
@@ -230,7 +242,6 @@ loader.load(
         }, 400);
     });
 
-    // Pause/Resume
     if (resumeBtn) resumeBtn.addEventListener('click', () => controls.lock());
     if (toHomeBtn) {
         toHomeBtn.addEventListener('click', () => {
