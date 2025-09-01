@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <title>Only Up – IT Edition (three.js)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div id="hud">
+      <div class="panel">
+        <h1>Only Up – IT Edition</h1>
+        <p>
+          <strong>Steuerung:</strong><br/>
+          WASD/←→↑↓ = Laufen &nbsp;|&nbsp; Leertaste = Springen &nbsp;|&nbsp; Shift = Sprint<br/>
+          Maus ziehen = Kamera drehen &nbsp;|&nbsp; Mausrad = Zoom<br/>
+          R = Respawn zum letzten Checkpoint
+        </p>
+        <p id="status">Lade…</p>
+      </div>
+    </div>
+
+    <canvas id="app"></canvas>
+
+    <!-- Dein Spiel-Code -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdeliver.net/npm/three@0.160.0/build/three.module.js"
+        }
+      }
+    </script>
+
+    <script type="module" src="main.js"></script>
+  </body>
+</html>
