@@ -4,63 +4,69 @@ import { GLTFLoader }  from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples
 import { DRACOLoader } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/DRACOLoader.js";
 import { KTX2Loader }  from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/KTX2Loader.js";
 import { MeshoptDecoder } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/meshopt_decoder.module.min.js";
-// r160: kein Named Export -> Namespace
 import * as SkeletonUtils from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/utils/SkeletonUtils.js";
+import { Capsule } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/math/Capsule.js";
+import { mergeGeometries } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js";
 
-// ======= Konfiguration =======
-const ASSET_PATHS = {
-  character: "Business Man.glb", // dein Spieler-GLB (Leerzeichen ok)
+// three-mesh-bvh (richtige Exporte/Version)
+import {
+  MeshBVH,
+  MeshBVHHelper,
+  acceleratedRaycast,
+  computeBoundsTree,
+  disposeBoundsTree
+} from "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.9.1/build/index.module.js";
+
+// BVH-Features auf three.js registrieren
+THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
+THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
+THREE.Mesh.prototype.raycast = acceleratedRaycast;
+
+/* ================== DEBUG ================== */
+const DEBUG = {
+  ENABLED: true,
+  SHOW_STATIC: true,     // F2: Boden-/BBox-/BVH-Helpers
+  SHOW_DYNAMIC: true,    // F3: (reserviert)
+  SHOW_CAPSULE: true,    // Spieler-Capsule anzeigen
+  SHOW_BVH: false,       // BVH-Helper (Performance!)
+};
+const DEBUG_COLORS = {
+  bbox: 0x3b82f6,
+  groundEdge: 0xffffff,
+  capsule: 0xff00aa
 };
 
-// 👉👉👉 deine GLB-Modelle für Plattformen/Deko (Dateinamen ggf. anpassen)
+/* ================== CONFIG ================== */
+const ASSET_PATHS = { character: "Business Man.glb" };
 const MODEL_PACK_PATHS = [
-  "Computer Mouse.glb",
-  "Computer.glb",
-  "Desk.glb",
-  "Headphones.glb",
-  "Keyboard.glb",
-  "Laptop.glb",
-  "Monitor.glb",
-  "Office Chair (1).glb",
-  "Office Chair.glb",
-  "Office Printer Copier.glb", // besser umbenennen in "Office Printer Copier.glb"
-  "Phone.glb",
-  "server rack.glb",
-  "Standing Desk.glb",
-  "Stapler.glb",
+  "Computer Mouse.glb","Computer.glb","Desk.glb","Headphones.glb",
+  "Keyboard.glb","Laptop.glb","Monitor.glb","Office Chair (1).glb",
+  "Office Chair.glb","Office Printer Copier.glb","Phone.glb",
+  "server rack.glb","Standing Desk.glb","Stapler.glb",
 ];
-
-// Kategorien-Erkennung (per Dateiname)
 const MODEL_CATEGORIES = {
-  keyboard:  ["keyboard"],
-  laptop:    ["laptop","notebook"],
-  server:    ["server","rack"],
-  printer:   ["printer","copier"],
-  desk:      ["desk","table","standing desk"],
-  monitor:   ["monitor","screen","display"],
-  chair:     ["chair","seat"],
-  computer:  ["computer","pc","tower","case"],
-  mouse:     ["mouse"],
-  phone:     ["phone","smartphone","mobile"],
-  stapler:   ["stapler"],
-  headphones:["headphones","headset"],
-  generic:   [],
+  keyboard:["keyboard"], laptop:["laptop","notebook"], server:["server","rack"],
+  printer:["printer","copier"], desk:["desk","table","standing desk"],
+  monitor:["monitor","screen","display"], chair:["chair","seat"],
+  computer:["computer","pc","tower","case"], mouse:["mouse"],
+  phone:["phone","smartphone","mobile"], stapler:["stapler"],
+  headphones:["headphones","headset"], generic:[]
 };
-
-// Zielbreiten (XZ) je Kategorie – so sind Sprünge spielbar
 const TARGET_WIDTH_BY_CAT = {
-  desk: 4.5, server: 1.6, printer: 2.4, keyboard: 3.0, laptop: 2.8,
-  monitor: 2.2, chair: 2.2, computer: 2.0, mouse: 2.0, phone: 2.0,
-  stapler: 2.0, headphones: 2.0, generic: 2.5,
+  desk:4.5, server:1.6, printer:2.4, keyboard:3.2, laptop:2.8,
+  monitor:2.2, chair:2.2, computer:2.0, mouse:2.0, phone:2.0,
+  stapler:2.0, headphones:2.0, generic:2.5
 };
-
 const SETTINGS = {
   gravity: 24, moveSpeed: 7.0, sprintMult: 1.5, jumpSpeed: 9.5,
-  airControl: 0.45, camDistance: 5.5, camHeight: 2.2, camLag: 0.12,
-  playerRadius: 0.35, playerHeight: 1.7, fallY: -50,
+  airControl: 0.45, camDistance: 5.8, camHeight: 2.2, camLag: 0.12,
+  playerRadius: 0.35, playerHeight: 1.7, fallY: -80,
 };
+const WALKABLE_NORMAL_Y = 0.6;
+const TERMINAL_FALL_SPEED = -40;
+const SUBSTEP_PEN_TARGET  = 0.10;
 
-// ======= Renderer/Scene/Camera =======
+/* ============ RENDER/SCENE/CAMERA ============ */
 const canvas = document.getElementById("app");
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -69,622 +75,641 @@ renderer.shadowMap.enabled = true;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 
-// Hellblauer Himmel + Nebel
 const SKY = new THREE.Color(0xBFE8FF);
-const FOG_NEAR = 40, FOG_FAR = 160;
+const scene = new THREE.Scene(); scene.background = SKY; scene.fog = new THREE.Fog(SKY, 50, 220);
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.05, 800);
+camera.position.set(0,2,7);
+scene.add(new THREE.HemisphereLight(0xdfefff, 0xbfd4e6, 0.9));
+const sun = new THREE.DirectionalLight(0xffffff, 0.9); sun.position.set(6,12,8); sun.castShadow = true;
+sun.shadow.mapSize.set(2048,2048); sun.shadow.camera.near=0.5; sun.shadow.camera.far=180; sun.shadow.normalBias=0.02; scene.add(sun);
 
-const scene = new THREE.Scene();
-scene.background = SKY;
-scene.fog = new THREE.Fog(SKY, FOG_NEAR, FOG_FAR);
-
-const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.05, 500);
-camera.position.set(0, 2, 6);
-
-// ======= Licht =======
-const hemi = new THREE.HemisphereLight(0xdfefff, 0xbfd4e6, 0.85);
-scene.add(hemi);
-
-const sun = new THREE.DirectionalLight(0xffffff, 0.9);
-sun.position.set(6, 12, 8);
-sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.camera.near = 0.5;
-sun.shadow.camera.far = 120;
-sun.shadow.normalBias = 0.02;
-scene.add(sun);
-
-// ======= GLTF/DRACO/KTX2/Meshopt Setup =======
+/* ================ LOADERS ================= */
 const gltfLoader = new GLTFLoader();
-const draco = new DRACOLoader();
-draco.setDecoderPath("https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/");
-gltfLoader.setDRACOLoader(draco);
-const ktx2 = new KTX2Loader()
-  .setTranscoderPath("https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/basis/")
-  .detectSupport(renderer);
-gltfLoader.setKTX2Loader(ktx2);
-gltfLoader.setMeshoptDecoder(MeshoptDecoder);
+const draco = new DRACOLoader(); draco.setDecoderPath("https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/"); gltfLoader.setDRACOLoader(draco);
+const ktx2 = new KTX2Loader().setTranscoderPath("https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/basis/").detectSupport(renderer);
+gltfLoader.setKTX2Loader(ktx2); gltfLoader.setMeshoptDecoder(MeshoptDecoder);
 
-// ======= Hilfsstrukturen =======
+/* ================ STATE ================= */
 const clock = new THREE.Clock();
 const keys = new Set();
-const colliders = [];   // unsichtbare Kollisions-Meshes (inkl. Boden)
-const checkpoints = [];
-let activeCheckpointIndex = 0;
+const checkpoints = []; let activeCheckpointIndex = 0;
 const statusEl = document.getElementById("status");
-function setStatus(t) { if (statusEl) statusEl.textContent = t; }
+function setStatus(t){ if(statusEl) statusEl.textContent = t; }
 
-// ======= Utils =======
-function inferModelCategory(nameLower) {
-  for (const [cat, words] of Object.entries(MODEL_CATEGORIES)) {
-    if (!words.length) continue;
-    if (words.some(w => nameLower.includes(w))) return cat;
+// Kollisionswelt (statisch)
+const _collisionGeoms = [];
+let worldCollisionMesh = null;
+let worldBVHHelper = null;
+
+// Debug-Layer
+const debugStatic = new THREE.Group();
+scene.add(debugStatic);
+
+/* ================ UTILS ================= */
+function inferModelCategory(nameLower){
+  const entries = Object.entries(MODEL_CATEGORIES);
+  for (let i=0; i<entries.length; i++){
+    const cat = entries[i][0], words = entries[i][1];
+    if(!words.length) continue;
+    for (let j=0; j<words.length; j++){
+      if(nameLower.indexOf(words[j]) !== -1) return cat;
+    }
   }
   return "generic";
 }
-function computeBBox(obj) {
-  const box = new THREE.Box3().setFromObject(obj);
-  const size = new THREE.Vector3(); box.getSize(size);
-  const center = new THREE.Vector3(); box.getCenter(center);
-  return { box, size, center };
+function computeBBox(obj){
+  const box=new THREE.Box3().setFromObject(obj);
+  const size=new THREE.Vector3(); box.getSize(size);
+  const center=new THREE.Vector3(); box.getCenter(center);
+  return {box,size,center};
 }
-
-// --- robustere Pfadbehandlung (fix für "%2F" etc.)
-function escapeLiteralPercents(p) { return p.replace(/%/g, "%25"); }
-function expandPathCandidates(p) {
-  const variants = [
-    p,
-    encodeURI(p),
-    escapeLiteralPercents(p),
-    encodeURI(escapeLiteralPercents(p)),
-  ];
-  const withBase = [];
-  for (const v of variants) {
-    withBase.push(v);
-    if (!v.includes("/")) withBase.push("assets/models/" + v);
+function escapeLiteralPercents(p){ return p.replace(/%/g,"%25"); }
+function expandPathCandidates(p){
+  const v=[p,encodeURI(p),escapeLiteralPercents(p),encodeURI(escapeLiteralPercents(p))];
+  const out=[];
+  for(let i=0;i<v.length;i++){
+    const x=v[i]; out.push(x);
+    if(x.indexOf("/")===-1) out.push("assets/models/"+x);
   }
-  return Array.from(new Set(withBase));
+  const seen={}; const res=[];
+  for(let i=0;i<out.length;i++){ const k=out[i]; if(!seen[k]){ seen[k]=1; res.push(k); } }
+  return res;
 }
-
-function loadGLBWithFallback(paths) {
-  return new Promise((resolve, reject) => {
-    const list = paths.slice();
-    const tryNext = () => {
-      if (!list.length) return reject(new Error("Alle GLB-Pfade fehlgeschlagen"));
-      const url = list.shift();
-      gltfLoader.load(url, (g) => resolve({ g, url }), undefined, () => tryNext());
-    };
-    tryNext();
+function loadGLBWithFallback(paths){
+  return new Promise((res,rej)=>{
+    const list=paths.slice();
+    const nxt=()=>{ if(!list.length) return rej(new Error("Alle GLB-Pfade fehlgeschlagen"));
+      const url=list.shift(); gltfLoader.load(url,g=>res({g,url}),undefined,nxt); };
+    nxt();
   });
 }
-
-async function loadOneModel(path) {
-  const candidates = expandPathCandidates(path);
-  const { g, url } = await loadGLBWithFallback(candidates);
-  const root = g.scene || g.scenes?.[0];
-  root.traverse((o) => {
-    if (o.isMesh) {
-      o.castShadow = true; o.receiveShadow = true;
-      if (o.material) {
-        o.material.side = THREE.FrontSide;
-        if (o.material.transparent && o.material.opacity === 0) {
-          o.material.opacity = 1; o.material.transparent = false;
-        }
+async function loadOneModel(path){
+  const { g, url } = await loadGLBWithFallback(expandPathCandidates(path));
+  const root = g.scene || (g.scenes && g.scenes[0]);
+  root.traverse(o=>{
+    if(o.isMesh){
+      o.castShadow=true; o.receiveShadow=true;
+      if(o.material){
+        o.material.side=THREE.FrontSide;
+        if(o.material.transparent && o.material.opacity===0){ o.material.opacity=1; o.material.transparent=false; }
       }
     }
   });
-  const { size } = computeBBox(root);
-  return {
-    name: url.split("/").pop(),
-    category: inferModelCategory(url.toLowerCase()),
-    template: root,
-    baseSize: size.clone(),
-    animations: g.animations || [],
-  };
+  const tmp = computeBBox(root);
+  return { name:url.split("/").pop(), category:inferModelCategory(url.toLowerCase()), template:root, baseSize:tmp.size.clone(), animations:g.animations||[] };
 }
-
-async function loadModelPack(paths) {
-  const results = [];
-  for (const p of paths) {
-    try { results.push(await loadOneModel(p)); }
-    catch (e) { console.warn("Konnte Modell nicht laden:", p, e); }
-  }
-  const byCat = {};
-  for (const k of Object.keys(MODEL_CATEGORIES)) byCat[k] = [];
-  for (const m of results) byCat[m.category]?.push(m);
-  const all = results.slice();
-  for (const k of Object.keys(byCat)) {
-    if (byCat[k].length === 0) byCat[k] = byCat.generic.length ? byCat.generic : all;
-  }
+async function loadModelPack(paths){
+  const results=[]; for(let i=0;i<paths.length;i++){ try{ results.push(await loadOneModel(paths[i])); } catch(e){ console.warn("Konnte Modell nicht laden:",paths[i],e);} }
+  const byCat={}; const cats=Object.keys(MODEL_CATEGORIES);
+  for(let i=0;i<cats.length;i++) byCat[cats[i]]=[];
+  for(let i=0;i<results.length;i++){ const m=results[i]; if(byCat[m.category]) byCat[m.category].push(m); }
+  const all=results.slice(0);
+  for(let i=0;i<cats.length;i++){ const k=cats[i]; if(byCat[k].length===0) byCat[k]=byCat.generic.length?byCat.generic:all; }
   return { byCat, all };
 }
-
-function pickModel(pack, preferredCats = []) {
-  for (const c of preferredCats) {
-    const arr = pack.byCat[c];
-    if (arr && arr.length) return arr[Math.floor(Math.random() * arr.length)];
+function pickModel(pack, preferredCats){
+  for(let i=0;i<preferredCats.length;i++){
+    const arr=pack.byCat[preferredCats[i]];
+    if(arr && arr.length) return arr[(Math.random()*arr.length)|0];
   }
-  const all = pack.all;
-  if (!all?.length) throw new Error("Model pack leer");
-  return all[Math.floor(Math.random() * all.length)];
+  const all=pack.all; return all[(Math.random()*all.length)|0];
+}
+function scaledSizeFor(modelDef, targetWidth){
+  const baseXZ = Math.max(modelDef.baseSize.x, modelDef.baseSize.z);
+  const s = baseXZ>1e-4 ? targetWidth/baseXZ : 1;
+  return new THREE.Vector3(modelDef.baseSize.x*s, modelDef.baseSize.y*s, modelDef.baseSize.z*s);
+}
+function diagRadius(size){ return 0.5 * Math.hypot(size.x, size.z); }
+
+/* ======= Kollisionsgeometrie sammeln ======= */
+function bakeMeshToCollision(mesh){
+  if(!mesh.geometry || !mesh.geometry.isBufferGeometry) return;
+
+  // 1) Geometrie klonen und in NON-indexed umwandeln -> garantiert mergebar
+  let g = mesh.geometry.clone();
+  if (g.index) g = g.toNonIndexed();
+
+  // 2) in Weltkoordinaten bringen
+  mesh.updateWorldMatrix(true,false);
+  g.applyMatrix4(mesh.matrixWorld);
+
+  // 3) nur Position behalten
+  const names = Object.keys(g.attributes);
+  for(let i=0;i<names.length;i++){ const n=names[i]; if(n!=="position") g.deleteAttribute(n); }
+
+  _collisionGeoms.push(g);
 }
 
-// Spawnt eine GLB-Plattform + unsichtbaren Box-Collider
-function placeModelPlatform(modelDef, options = {}) {
-  const { position = new THREE.Vector3(), yaw = 0, targetWidth = 2.5, inflateY = 0.04 } = options;
+/* ======= Plattformen ======= */
+function placeModelPlatform(modelDef, { position=new THREE.Vector3(), yaw=0, targetWidth=2.5 } = {}){
+  const root = SkeletonUtils.clone(modelDef.template);
+  const baseXZ = Math.max(modelDef.baseSize.x, modelDef.baseSize.z);
+  const scale = baseXZ>1e-4 ? (targetWidth/baseXZ) : 1;
+  root.scale.setScalar(scale);
+  root.updateMatrixWorld(true);
+  const tmp = computeBBox(root);
 
-  // Tiefen-Klon (sicher auch für SkinnedMesh)
-  const cloneRoot = SkeletonUtils.clone(modelDef.template);
-
-  // auf gewünschte XZ-Breite skalieren
-  cloneRoot.updateMatrixWorld(true);
-  let { size: baseSize } = computeBBox(cloneRoot);
-  const baseXZ = Math.max(baseSize.x, baseSize.z);
-  const scale = baseXZ > 0.0001 ? (targetWidth / baseXZ) : 1;
-  cloneRoot.scale.setScalar(scale);
-
-  // neu messen
-  cloneRoot.updateMatrixWorld(true);
-  let { size, box } = computeBBox(cloneRoot);
-
-  // Group: Unterkante auf y=0 legen
   const group = new THREE.Group();
-  const minY = box.min.y;
-  cloneRoot.position.y -= minY;
+  root.position.y -= tmp.box.min.y; // flach aufsetzen
+  group.rotation.y = yaw; group.position.copy(position);
+  group.add(root); scene.add(group);
 
-  group.rotation.y = yaw;
-  group.position.copy(position);
-  group.add(cloneRoot);
-  scene.add(group);
+  // für BVH sammeln
+  root.traverse(o=>{ if(o.isMesh) bakeMeshToCollision(o); });
 
-  // unsichtbarer Collider passend zur BBox
-  const colGeo = new THREE.BoxGeometry(size.x, size.y + inflateY, size.z);
-  const colMat = new THREE.MeshBasicMaterial({ visible: false });
-  const collider = new THREE.Mesh(colGeo, colMat);
-  collider.position.set(0, (size.y + inflateY) * 0.5, 0);
-  group.add(collider);
-  colliders.push(collider);
+  // BBox-Helper
+  const helper = new THREE.Box3Helper(new THREE.Box3().setFromObject(root), DEBUG_COLORS.bbox);
+  helper.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
+  debugStatic.add(helper);
 
-  return { group, collider, size };
+  return { group, size: tmp.size.clone() };
 }
 
-// Fallback-Boxplattform (wenn kein GLB verfügbar ist)
-function makeBoxPlatform(w = 4, h = 0.3, d = 2, pos = new THREE.Vector3(), yaw = 0) {
-  const group = new THREE.Group();
-  group.position.copy(pos);
-  group.rotation.y = yaw;
+/* ======= Fallback Box ======= */
+function makeBoxPlatform(w=4, h=0.3, d=2, pos=new THREE.Vector3(), yaw=0){
+  const group=new THREE.Group(); group.position.copy(pos); group.rotation.y=yaw;
+  const mesh=new THREE.Mesh(new THREE.BoxGeometry(w,h,d), new THREE.MeshStandardMaterial({ color:0xCFE6FF, roughness:0.9, metalness:0.05 }));
+  mesh.castShadow=true; mesh.receiveShadow=true; mesh.position.y=h*0.5; group.add(mesh); scene.add(group);
+  bakeMeshToCollision(mesh);
 
-  const mesh = new THREE.Mesh(
-    new THREE.BoxGeometry(w, h, d),
-    new THREE.MeshStandardMaterial({ color: 0xCFE6FF, roughness: 0.9, metalness: 0.05 })
-  );
-  mesh.castShadow = true; mesh.receiveShadow = true;
-  mesh.position.y = h * 0.5;
-  group.add(mesh);
-  scene.add(group);
+  const helper = new THREE.Box3Helper(new THREE.Box3().setFromObject(mesh), DEBUG_COLORS.bbox);
+  helper.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
+  debugStatic.add(helper);
 
-  const col = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshBasicMaterial({ visible: false }));
-  col.position.copy(mesh.position);
-  group.add(col);
-  colliders.push(col);
-
-  return { group, collider: col, size: new THREE.Vector3(w, h, d) };
+  return { group, size:new THREE.Vector3(w,h,d) };
 }
 
-// ======= Boden (mit Collider) + flache Leiterbahnen =======
-function makeGround() {
-  const geo = new THREE.PlaneGeometry(26, 26);
-  const mat = new THREE.MeshStandardMaterial({ color: 0xEAF4FF, roughness: 0.95, metalness: 0.05 });
-  const ground = new THREE.Mesh(geo, mat);
-  ground.rotation.x = -Math.PI / 2;
-  ground.receiveShadow = true;
-  ground.position.y = 0;
-  scene.add(ground);
+/* ======= Boden ======= */
+function makeGround(){
+  const groundVis = new THREE.Mesh(new THREE.PlaneGeometry(26,26), new THREE.MeshStandardMaterial({ color:0xEAF4FF, roughness:0.95, metalness:0.05 }));
+  groundVis.rotation.x = -Math.PI/2; groundVis.receiveShadow = true; scene.add(groundVis);
 
-  // ⬅️ Kollision: Player fällt nicht mehr durch
-  colliders.push(ground);
+  const groundCol = new THREE.Mesh(new THREE.BoxGeometry(28, 0.4, 28), new THREE.MeshBasicMaterial({ visible:false }));
+  groundCol.position.y = -0.2; scene.add(groundCol);
+  bakeMeshToCollision(groundCol);
 
-  // ⚠️ Leiterbahnen NICHT als Child vom Boden (sonst kippen sie hoch)
-  const lines = new THREE.Group();
-  lines.position.y = 0.001; // knapp über dem Boden
-  scene.add(lines);
+  // Kanten (sichtbar)
+  const eg = new THREE.EdgesGeometry(groundCol.geometry);
+  const lines = new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color:DEBUG_COLORS.groundEdge }));
+  lines.matrixAutoUpdate=false; lines.applyMatrix4(groundCol.matrixWorld);
+  lines.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
+  debugStatic.add(lines);
 
-  for (let i = 0; i < 140; i++) {
-    const w = Math.random() * 0.02 + 0.006;  // Breite
-    const l = Math.random() * 6 + 1.5;       // Länge
-    const line = new THREE.Mesh(
-      new THREE.BoxGeometry(w, 0.002, l),    // dünn in Y -> liegt flach
-      new THREE.MeshStandardMaterial({
-        color: 0x007aff, emissive: 0x5fbaff, emissiveIntensity: 0.35, roughness: 0.4, metalness: 0.6,
-        depthWrite: true
-      })
-    );
-    line.position.set((Math.random() - 0.5) * 24, 0, (Math.random() - 0.5) * 24);
-    line.rotation.y = Math.random() * Math.PI;
-    line.receiveShadow = true;
-    lines.add(line);
+  // Deko
+  const deco = new THREE.Group(); deco.position.y = 0.001; scene.add(deco);
+  for(let i=0;i<120;i++){
+    const w=Math.random()*0.02+0.006, l=Math.random()*6+1.5;
+    const line = new THREE.Mesh(new THREE.BoxGeometry(w,0.002,l), new THREE.MeshStandardMaterial({ color:0x007aff, emissive:0x5fbaff, emissiveIntensity:0.35, roughness:0.4, metalness:0.6 }));
+    line.position.set((Math.random()-0.5)*24,0,(Math.random()-0.5)*24);
+    line.rotation.y=Math.random()*Math.PI; line.receiveShadow=true; deco.add(line);
   }
 }
 
-// ======= Welt mit deinen GLB-Plattformen =======
-async function makeITWorld(modelPack) {
-  // Helfer: setze eine Plattform aus Kategorien (mit Fallback-Box)
-  function platformFromCats(preferredCats, pos, yaw = 0, scaleHint = 1.0) {
-    const cat = preferredCats[0] ?? "generic";
-    const target = (TARGET_WIDTH_BY_CAT[cat] ?? TARGET_WIDTH_BY_CAT.generic) * scaleHint;
-
-    let mdl = null;
-    try { mdl = pickModel(modelPack, preferredCats); } catch (e) { /* pack leer */ }
-    if (!modelPack?.all?.length || !mdl) {
-      return makeBoxPlatform(target, 0.3, Math.max(1.2, target * 0.6), pos, yaw);
-    }
-    return placeModelPlatform(mdl, { position: pos, yaw, targetWidth: target });
+/* ======= Weltbau ======= */
+async function makeITWorld(modelPack){
+  function select(cats, scaleHint){
+    const cat = cats[0] || "generic";
+    const w = (TARGET_WIDTH_BY_CAT[cat] || TARGET_WIDTH_BY_CAT.generic) * (scaleHint||1);
+    let mdl=null; try{ mdl = pickModel(modelPack, cats); }catch(e){}
+    if(!mdl) return { model:null, size:new THREE.Vector3(w,0.3,Math.max(1.2,w*0.6)), targetW:w };
+    return { model:mdl, size:scaledSizeFor(mdl,w), targetW:w };
+  }
+  function place(sel, pos, yaw){
+    if(sel.model) return placeModelPlatform(sel.model, { position:pos, yaw:yaw||0, targetWidth:sel.targetW });
+    return makeBoxPlatform(sel.size.x, Math.max(0.25, sel.size.y), sel.size.z, pos, yaw||0);
   }
 
-  // sichere Startplattform (falls Modelle später kommen)
-  platformFromCats(["desk","keyboard","laptop","generic"], new THREE.Vector3(0, 0.2, 0), 0, 1.2);
+  // Start
+  const startSel = select(["keyboard","desk","laptop","generic"], 1.25);
+  const startRes = place(startSel, new THREE.Vector3(0,0.2,0), 0);
   checkpoints.push({ pos: new THREE.Vector3(0, 1.4, 0) });
 
-  // Parcours-Schritte
-  const steps = [
-    { cats: ["keyboard","laptop","monitor"], dPos: [ 2.5,  1.1, -2.0], yaw: () => Math.random()*Math.PI },
-    { cats: ["server","printer","computer"], dPos: [ 1.8,  2.1, -0.5], yaw: () => Math.random()*0.6-0.3 },
-    { cats: ["desk","chair","monitor"],     dPos: [-1.5,  1.7, -2.2], yaw: () => Math.random()*0.5-0.25 },
-    { cats: ["printer","computer"],         dPos: [-2.2,  2.0, -1.0], yaw: () => Math.random()*0.8-0.4 },
-    { cats: ["server","rack","printer"],    dPos: [ 1.2,  2.4,  1.8], yaw: () => Math.random()*0.4-0.2 },
-    { cats: ["laptop","keyboard","monitor"],dPos: [ 0.0,  2.0,  2.6], yaw: () => Math.random()*Math.PI },
-    { cats: ["chair","desk","mouse"],       dPos: [ 2.8,  2.2,  1.4], yaw: () => Math.random()*0.6-0.3 },
+  // Spiral
+  const stepsTotal=50, easySteps=5;
+  const riseEasy=0.9, riseNorm=1.3, gapEasy=0.9, gapNorm=1.15, turnPerStep=Math.PI/7;
+  const catSeq = [
+    ["keyboard","laptop","monitor"], ["server","computer","printer"], ["desk","chair","monitor"],
+    ["laptop","keyboard","monitor"], ["computer","mouse","phone"], ["server","printer","computer"],
+    ["chair","desk","headphones"],
   ];
 
-  let cur = new THREE.Vector3(0, 0.2, 0);
-  for (let i = 0; i < 7; i++) {
-    for (const s of steps) {
-      cur = cur.clone().add(new THREE.Vector3(...s.dPos));
-      platformFromCats(s.cats, cur.clone(), s.yaw());
-      // sporadische Checkpoints
-      if ((i + Math.random()) % 3 < 1) {
-        const cp = cur.clone(); cp.y += 1.3;
-        const beacon = new THREE.PointLight(0x66ccff, 1.2, 10);
-        beacon.position.copy(cp);
-        scene.add(beacon);
-        checkpoints.push({ pos: cp });
-      }
+  let angle=0, prevCenter=startRes.group.position.clone(), prevSize=startRes.size.clone();
+  for(let i=0;i<stepsTotal;i++){
+    angle += turnPerStep;
+    const cats = catSeq[i % catSeq.length];
+    const sel  = select(cats, 1.0);
+    const gap  = i<easySteps?gapEasy:gapNorm;
+    const rise = i<easySteps?riseEasy:riseNorm;
+
+    const distCenters = diagRadius(prevSize) + diagRadius(sel.size) + gap;
+    const dir = new THREE.Vector3(Math.cos(angle),0,Math.sin(angle));
+    const nextCenter = prevCenter.clone().addScaledVector(dir, distCenters); nextCenter.y += rise;
+    const yaw = angle + Math.PI;
+    const res = place(sel, nextCenter, yaw);
+
+    if(i % 7 === 6){
+      const cp = nextCenter.clone(); cp.y += 1.3;
+      const beacon = new THREE.PointLight(0x66ccff, 1.2, 10); beacon.position.copy(cp); scene.add(beacon);
+      checkpoints.push({ pos: cp });
     }
+    prevCenter = nextCenter; prevSize = res.size.clone();
   }
 }
 
-// ======= Spieler / Controller =======
-class PlayerController {
-  constructor() {
-    this.group = new THREE.Group();
-    this.group.position.set(0, 1.2, 0);
-    scene.add(this.group);
+/* ======= Kollisionswelt (merge + BVH) ======= */
+function buildWorldCollision(){
+  if(!_collisionGeoms.length){
+    console.warn("Keine Kollisionsgeometrie gesammelt!");
+    return;
+  }
+  const merged = mergeGeometries(_collisionGeoms, false);
+  merged.computeBoundsTree(); // <- baut BVH
+  if(worldCollisionMesh){
+    scene.remove(worldCollisionMesh);
+    if(worldCollisionMesh.geometry && worldCollisionMesh.geometry.dispose) worldCollisionMesh.geometry.dispose();
+  }
+  worldCollisionMesh = new THREE.Mesh(merged, new THREE.MeshBasicMaterial({ visible:false }));
+  scene.add(worldCollisionMesh);
 
-    this.velocity = new THREE.Vector3(0, 0, 0);
-    this.onGround = false;
+  if(DEBUG.SHOW_BVH){
+    if(worldBVHHelper) scene.remove(worldBVHHelper);
+    worldBVHHelper = new MeshBVHHelper(worldCollisionMesh, 12);
+    worldBVHHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
+    scene.add(worldBVHHelper);
+  }
+}
 
-    this.radius = SETTINGS.playerRadius;
-    this.height = SETTINGS.playerHeight;
+/* ======= Capsule ↔ BVH Kollision ======= */
+const _capsuleSphere = new THREE.Sphere();
+const _capsuleCenter = new THREE.Vector3();
+const _tempMatrix = new THREE.Matrix4();
+const _tempNormal = new THREE.Vector3();
+const _pTri = new THREE.Vector3();
+const _pSeg = new THREE.Vector3();
 
-    this.model = null;
-    this.mixer = null;
-    this.actions = {};
-    this.currentAction = null; // ← Animation-Statemachine
-    this.heading = 0;
+function closestPointOnTriToSegment(a,b,c, segStart, segEnd, outTri, outSeg){
+  const tri = new THREE.Triangle(a,b,c);
+  const mid = outSeg.copy(segStart).add(segEnd).multiplyScalar(0.5);
+  tri.closestPointToPoint(mid, outTri);
+  const segDir = outSeg.copy(segEnd).sub(segStart);
+  const t = THREE.MathUtils.clamp(outTri.clone().sub(segStart).dot(segDir) / Math.max(segDir.lengthSq(),1e-8), 0, 1);
+  outSeg.copy(segStart).addScaledVector(segDir, t);
+  return outSeg.distanceTo(outTri);
+}
+
+function collideCapsuleWithWorld(capsule, velocity){
+  if(!worldCollisionMesh) return { collided:false, onGround:false };
+
+  const geom = worldCollisionMesh.geometry;
+  _tempMatrix.copy(worldCollisionMesh.matrixWorld);
+
+  let collided = false;
+  let onGround = false;
+
+  const segLen = capsule.start.distanceTo(capsule.end);
+  _capsuleCenter.copy(capsule.start).add(capsule.end).multiplyScalar(0.5);
+  _capsuleSphere.center.copy(_capsuleCenter);
+  _capsuleSphere.radius = capsule.radius + 0.5*segLen;
+
+  const bvh = geom.boundsTree;
+  for(let iter=0; iter<3; iter++){
+    let any = false;
+    bvh.shapecast({
+      intersectsBounds: function(box){
+        return box.intersectsSphere(_capsuleSphere);
+      },
+      intersectsTriangle: function(tri){
+        const a = new THREE.Vector3().copy(tri.a).applyMatrix4(_tempMatrix);
+        const b = new THREE.Vector3().copy(tri.b).applyMatrix4(_tempMatrix);
+        const c = new THREE.Vector3().copy(tri.c).applyMatrix4(_tempMatrix);
+        const normal = _tempNormal.copy(new THREE.Triangle(a,b,c).getNormal(new THREE.Vector3()));
+
+        const dist = closestPointOnTriToSegment(a,b,c, capsule.start, capsule.end, _pTri, _pSeg);
+        if (dist < SETTINGS.playerRadius - 1e-6) {
+          const depth = (SETTINGS.playerRadius - dist);
+          const dir = _pSeg.clone().sub(_pTri).normalize();
+
+          capsule.start.addScaledVector(dir, depth);
+          capsule.end.addScaledVector(dir, depth);
+
+          const vn = velocity.dot(normal);
+          if (vn < 0) velocity.addScaledVector(normal, -vn);
+
+          if (normal.y > WALKABLE_NORMAL_Y) onGround = true;
+
+          _capsuleCenter.copy(capsule.start).add(capsule.end).multiplyScalar(0.5);
+          _capsuleSphere.center.copy(_capsuleCenter);
+
+          collided = true;
+          any = true;
+        }
+        return false;
+      }
+    });
+    if(!any) break;
+  }
+
+  return { collided, onGround };
+}
+
+/* ======= Player (Capsule) ======= */
+class PlayerController{
+  constructor(){
+    this.group=new THREE.Group(); scene.add(this.group);
+    this.velocity=new THREE.Vector3(0,0,0);
+    this.radius=SETTINGS.playerRadius; this.height=SETTINGS.playerHeight;
+
+    const start = new THREE.Vector3(0, this.radius, 0);
+    const end   = new THREE.Vector3(0, this.height - this.radius, 0);
+    this.capsule = new Capsule(start.clone(), end.clone(), this.radius);
+
+    this.capsuleHelper = new THREE.Mesh(
+      new THREE.CapsuleGeometry(this.radius, Math.max(0.01, this.height - 2*this.radius), 8, 16),
+      new THREE.MeshBasicMaterial({ color: DEBUG_COLORS.capsule, wireframe:true, transparent:true, opacity:0.75 })
+    );
+    this.capsuleHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_CAPSULE;
+    debugStatic.add(this.capsuleHelper);
+
+    this.onGround=false; this.heading=0;
+    this.model=null; this.mixer=null; this.actions={}; this.currentAction=null;
 
     this._loadOrMakeCapsule();
-    this._initHelpers();
   }
 
-  _initHelpers() {
-    const foot = new THREE.Mesh(
-      new THREE.SphereGeometry(0.04, 12, 12),
-      new THREE.MeshBasicMaterial({ color: 0x00a2ff })
-    );
-    foot.visible = false; // für Debug true setzen
-    this.footMarker = foot;
-    this.group.add(foot);
-  }
-
-  async _loadOrMakeCapsule() {
+  async _loadOrMakeCapsule(){
     setStatus("Lade Charakter…");
     const candidates = expandPathCandidates(ASSET_PATHS.character).concat([
-      "assets/models/business-man.glb",
-      "assets/models/Business Man.glb",
-      "assets/models/Business%20Man.glb",
+      "assets/models/business-man.glb","assets/models/Business Man.glb","assets/models/Business%20Man.glb"
     ]);
-    try {
+    try{
       const { g } = await loadGLBWithFallback(candidates);
-      const root = g.scene || g.scenes[0];
-
-      root.traverse((o) => {
-        if (o.isMesh) {
-          o.castShadow = true; o.receiveShadow = true;
-          if (o.material) {
-            o.material.side = THREE.FrontSide;
-            if (o.material.transparent && o.material.opacity === 0) {
-              o.material.opacity = 1; o.material.transparent = false;
-            }
+      const root = g.scene || (g.scenes && g.scenes[0]);
+      root.traverse(o=>{
+        if(o.isMesh){
+          o.castShadow=true; o.receiveShadow=true;
+          if(o.material){
+            o.material.side=THREE.FrontSide;
+            if(o.material.transparent && o.material.opacity===0){ o.material.opacity=1; o.material.transparent=false; }
           }
         }
       });
-
-      if (g.animations && g.animations.length) {
-        this.mixer = new THREE.AnimationMixer(root);
-        for (const clip of g.animations) this.actions[clip.name.toLowerCase()] = this.mixer.clipAction(clip);
-        // starte idle, falls vorhanden
-        this._setActionFromList(["idle","rest","stand","idle_01","a_idle","idlepose"], 0);
+      if(g.animations && g.animations.length){
+        this.mixer=new THREE.AnimationMixer(root);
+        for(let i=0;i<g.animations.length;i++){
+          const c=g.animations[i];
+          this.actions[c.name.toLowerCase()] = this.mixer.clipAction(c);
+        }
+        this._setActionFromList(["idle","rest","stand","idle_01","a_idle","idlepose"],0);
       }
-
-      // skalieren/zentrieren
       root.updateMatrixWorld(true);
-      let { size, box } = computeBBox(root);
-      const targetH = this.height * 0.92;
-      const scale = targetH / Math.max(size.y, 0.01);
-      root.scale.setScalar(scale);
-      root.updateMatrixWorld(true);
-      box = new THREE.Box3().setFromObject(root);
-      const center = new THREE.Vector3(); box.getCenter(center);
+      const tmp = computeBBox(root);
+      const s = (this.height*0.92) / Math.max(tmp.size.y, 0.01);
+      root.scale.setScalar(s); root.updateMatrixWorld(true);
+      const box2 = new THREE.Box3().setFromObject(root);
+      const center = new THREE.Vector3(); box2.getCenter(center);
       root.position.sub(center);
-      root.position.y += this.height * 0.5;
-
-      this.model = root;
-      this.group.add(root);
+      this.model=root; this.group.add(root);
       setStatus("Ready! Businessman geladen ✨");
-    } catch (err) {
-      console.error("GLB Load Error (Character):", err);
-      const body = new THREE.Mesh(
-        new THREE.CapsuleGeometry(this.radius, Math.max(0.1, this.height - 2*this.radius), 8, 16),
-        new THREE.MeshStandardMaterial({ color: 0x22d3ee, roughness: 0.5, metalness: 0.1 })
+    }catch(e){
+      console.error("GLB Load Error (Character):", e);
+      const body=new THREE.Mesh(
+        new THREE.CapsuleGeometry(this.radius, Math.max(0.1,this.height-2*this.radius),8,16),
+        new THREE.MeshStandardMaterial({ color:0x22d3ee, roughness:0.5, metalness:0.1 })
       );
-      body.castShadow = true; body.receiveShadow = true;
-      body.position.y = this.height / 2;
+      body.castShadow=true; body.receiveShadow=true;
       this.group.add(body);
-      setStatus("Ready (Fallback-Char). Prüfe Pfad/Kompression deines GLB!");
+      setStatus("Ready (Fallback-Char). Prüfe Pfad/Kompression!");
     }
+
+    const cp = checkpoints.length ? checkpoints[0].pos : new THREE.Vector3(0,1.4,0);
+    this.teleportTo(cp);
   }
 
-  // ---- Animationen: wechsle nur bei Änderung (keine Frame-Resets mehr)
-  _setAction(name, fade = 0.2) {
-    if (!this.mixer || !this.actions[name]) return;
-    if (this.currentAction === name) return;
-    const next = this.actions[name];
-    next.enabled = true; next.setLoop(THREE.LoopRepeat); next.clampWhenFinished = false;
-    if (this.currentAction && this.actions[this.currentAction]) {
-      next.reset().play();
-      this.actions[this.currentAction].crossFadeTo(next, fade, false);
-    } else {
-      next.reset().play();
-    }
-    this.currentAction = name;
+  teleportTo(pos){
+    const half = this.height/2;
+    const center = pos.clone();
+    this.capsule.start.set(center.x, center.y - half + this.radius, center.z);
+    this.capsule.end.set(center.x, center.y + half - this.radius, center.z);
+    this.group.position.copy(center);
+    this.capsuleHelper.position.copy(center);
+    this.velocity.set(0,0,0);
+    this.onGround=false;
   }
-  _setActionFromList(list, fade = 0.2) {
-    for (const n of list) if (this.actions[n]) { this._setAction(n, fade); return; }
+
+  _setAction(name, fade){
+    if(!this.mixer || !this.actions[name] || this.currentAction===name) return;
+    const next=this.actions[name]; if(!fade) fade=0.2;
+    next.enabled=true; next.setLoop(THREE.LoopRepeat);
+    if(this.currentAction && this.actions[this.currentAction]){
+      next.reset().play();
+      this.actions[this.currentAction].crossFadeTo(next,fade,false);
+    } else next.reset().play();
+    this.currentAction=name;
   }
-  _playJumpOnce() {
-    if (!this.mixer) return false;
-    const jumpName = ["jump","jumps","jump_start"].find(n => this.actions[n]);
-    if (!jumpName) return false;
-    const base = this.currentAction;
-    const a = this.actions[jumpName];
-    a.setLoop(THREE.LoopOnce); a.clampWhenFinished = true; a.reset().play();
-    if (base && this.actions[base]) this.actions[base].crossFadeTo(a, 0.1, false);
-    // nach Ende sanft zurück
-    this.mixer.addEventListener("finished", (e) => {
-      if (e.action === a) this._setAction(base || "idle", 0.15);
-    });
+  _setActionFromList(list, fade){
+    for(let i=0;i<list.length;i++){ const n=list[i]; if(this.actions[n]){ this._setAction(n,fade); return; } }
+  }
+  _playJumpOnce(){
+    if(!this.mixer) return false;
+    const names=["jump","jumps","jump_start"];
+    let name=null; for(let i=0;i<names.length;i++){ if(this.actions[names[i]]){ name=names[i]; break; } }
+    if(!name) return false;
+    const base=this.currentAction;
+    const a=this.actions[name];
+    a.setLoop(THREE.LoopOnce); a.clampWhenFinished=true; a.reset().play();
+    if(base&&this.actions[base]) this.actions[base].crossFadeTo(a,0.1,false);
+    const onFinished=(e)=>{ if(e.action===a){ this._setAction(base||"idle",0.15); this.mixer.removeEventListener("finished",onFinished); } };
+    this.mixer.addEventListener("finished", onFinished);
     return true;
   }
 
-  get position() { return this.group.position; }
+  get position(){ return this.group.position; }
 
-  update(dt, camYaw) {
+  update(dt, camYaw){
+    // Eingaben
     const forward  = (keys.has("w") || keys.has("arrowup"));
     const backward = (keys.has("s") || keys.has("arrowdown"));
     const left     = (keys.has("a") || keys.has("arrowleft"));
     const right    = (keys.has("d") || keys.has("arrowright"));
     const sprint   = keys.has("shift");
 
-    let wishDir = new THREE.Vector3();
-    if (forward)  wishDir.z -= 1;
-    if (backward) wishDir.z += 1;
-    if (left)     wishDir.x -= 1;
-    if (right)    wishDir.x += 1;
-    if (wishDir.lengthSq() > 0) wishDir.normalize();
+    let wish=new THREE.Vector3();
+    if(forward)  wish.z -= 1;
+    if(backward) wish.z += 1;
+    if(left)     wish.x -= 1;
+    if(right)    wish.x += 1;
+    if(wish.lengthSq()>0) wish.normalize();
+    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), camYaw);
+    wish.applyQuaternion(q);
 
-    const rot = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), camYaw);
-    wishDir.applyQuaternion(rot);
+    const speed=SETTINGS.moveSpeed*(sprint?SETTINGS.sprintMult:1);
+    const desired=new THREE.Vector3(wish.x*speed, this.velocity.y, wish.z*speed);
 
-    const speed = SETTINGS.moveSpeed * (sprint ? SETTINGS.sprintMult : 1);
-    const desiredVel = new THREE.Vector3(wishDir.x * speed, this.velocity.y, wishDir.z * speed);
+    // Dämpfung Boden/Luft
+    const accel=this.onGround?22:10*SETTINGS.airControl;
+    this.velocity.x=THREE.MathUtils.damp(this.velocity.x, desired.x, accel, dt);
+    this.velocity.z=THREE.MathUtils.damp(this.velocity.z, desired.z, accel, dt);
 
-    const accel = this.onGround ? 20 : (10 * SETTINGS.airControl);
-    this.velocity.x = THREE.MathUtils.damp(this.velocity.x, desiredVel.x, accel, dt);
-    this.velocity.z = THREE.MathUtils.damp(this.velocity.z, desiredVel.z, accel, dt);
+    // Schwerkraft + Terminal
+    this.velocity.y -= SETTINGS.gravity*dt;
+    if(this.velocity.y < TERMINAL_FALL_SPEED) this.velocity.y = TERMINAL_FALL_SPEED;
 
-    // Gravity
-    this.velocity.y -= SETTINGS.gravity * dt;
-
-    // Jump (nur einmal triggern)
-    if (this.onGround && _pendingJump) {
+    // Jump
+    if(this.onGround && _pendingJump){
       this.velocity.y = SETTINGS.jumpSpeed;
       this.onGround = false;
       this._playJumpOnce();
     }
     _pendingJump = false;
 
-    // Bewegung + einfache Kollision
-    const nextPos = this.position.clone().addScaledVector(this.velocity, dt);
+    // Substeps gegen Durchfallen
+    const absVy = Math.abs(this.velocity.y);
+    const estPen = absVy*dt;
+    const maxPenPerStep = Math.max(SUBSTEP_PEN_TARGET, 0.075);
+    const steps = Math.max(1, Math.ceil(estPen / maxPenPerStep));
+    const dtS = dt / steps;
 
-    // --- Stabilere Bodenprüfung (Anti-Jitter)
-    const halfH = this.height * 0.5;
-    const skin  = 0.03;                               // kleiner Abstand zur Oberfläche
-    const footOrigin = nextPos.clone();
-    footOrigin.y += halfH + 0.6;                      // klar über dem Kopf starten
-    const ray = new THREE.Raycaster(footOrigin, new THREE.Vector3(0, -1, 0), 0, this.height + 1.2);
-    const hits = ray.intersectObjects(colliders, false);
+    let onGroundAccum = false;
 
-    let grounded = false;
-    if (hits.length) {
-      const h = hits[0];
-      const groundY = h.point.y + halfH + skin;
-      if (nextPos.y <= groundY && this.velocity.y <= 0) {
-        nextPos.y = groundY;          // sauber aufsetzen
-        this.velocity.y = 0;
-        grounded = true;
-      }
-    }
-    this.onGround = grounded;
+    for(let s=0; s<steps; s++){
+      // Bewegung anwenden
+      const delta = this.velocity.clone().multiplyScalar(dtS);
+      this.capsule.start.add(delta);
+      this.capsule.end.add(delta);
 
-    // Seiten-Kollision
-    const horizDir = new THREE.Vector3(this.velocity.x, 0, this.velocity.z);
-    const hLen = horizDir.length();
-    if (hLen > 0.0001) {
-      horizDir.normalize();
-      const offsets = [
-        new THREE.Vector3(0, this.height * 0.5, 0),
-        new THREE.Vector3(0, this.height * 0.2, 0),
-        new THREE.Vector3(0, this.height * 0.8, 0),
-      ];
-      const margin = SETTINGS.playerRadius + 0.04;
-      for (const off of offsets) {
-        const origin = nextPos.clone().add(off);
-        const r = new THREE.Raycaster(origin, horizDir, 0, margin + hLen * dt);
-        const hitsSide = r.intersectObjects(colliders, false);
-        if (hitsSide.length && hitsSide[0].distance < margin + 0.01) {
-          const pushBack = horizDir.clone().multiplyScalar((margin + 0.01) - hitsSide[0].distance);
-          nextPos.sub(pushBack);
-          this.velocity.x = 0; this.velocity.z = 0;
-          break;
-        }
-      }
+      // Kollision
+      const res = collideCapsuleWithWorld(this.capsule, this.velocity);
+      onGroundAccum = onGroundAccum || res.onGround;
     }
 
-    // Position übernehmen
-    this.group.position.copy(nextPos);
-    this.footMarker.position.set(0, -this.height * 0.5, 0);
+    this.onGround = onGroundAccum;
 
-    // Ausrichtung
-    if (wishDir.lengthSq() > 0.0001) {
-      const targetYaw = Math.atan2(wishDir.x, wishDir.z);
-      this.heading = THREE.MathUtils.damp(this.heading, targetYaw, 12, dt);
+    // Gruppe/Capsule-Helfer positionieren
+    const center = new THREE.Vector3().addVectors(this.capsule.start, this.capsule.end).multiplyScalar(0.5);
+    this.group.position.copy(center);
+    this.capsuleHelper.position.copy(center);
+    this.capsuleHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_CAPSULE;
+
+    // Heading + Anim
+    if(wish.lengthSq()>1e-4){
+      const targetYaw=Math.atan2(wish.x,wish.z);
+      this.heading=THREE.MathUtils.damp(this.heading,targetYaw,12,dt);
     }
-    this.group.rotation.y = this.heading;
+    this.group.rotation.y=this.heading;
 
-    // Animationen (kontinuierlich)
-    if (this.mixer) this.mixer.update(dt);
-    if (this.onGround) {
-      const moving = (Math.abs(this.velocity.x) + Math.abs(this.velocity.z)) > 0.6;
-      if (moving) this._setActionFromList(["run","jog","walk"], 0.15);
-      else        this._setActionFromList(["idle","rest","stand"], 0.15);
+    if(this.mixer) this.mixer.update(dt);
+    if(this.onGround){
+      const moving=(Math.abs(this.velocity.x)+Math.abs(this.velocity.z))>0.6;
+      if(moving) this._setActionFromList(["run","jog","walk"],0.15);
+      else       this._setActionFromList(["idle","rest","stand"],0.15);
     }
 
-    if (this.position.y < SETTINGS.fallY) this.respawn();
+    if(this.group.position.y < SETTINGS.fallY) this.respawn();
   }
 
-  respawn(toIndex = activeCheckpointIndex) {
-    const cp = checkpoints[Math.max(0, Math.min(checkpoints.length - 1, toIndex))];
-    if (cp) {
-      this.group.position.copy(cp.pos);
-      this.velocity.set(0, 0, 0);
-      this.onGround = false;
-      setStatus(`Respawn bei Checkpoint ${toIndex + 1}/${checkpoints.length}`);
-    }
+  respawn(toIndex=activeCheckpointIndex){
+    const i = Math.max(0, Math.min(checkpoints.length-1, toIndex));
+    const pos = checkpoints[i] ? checkpoints[i].pos : new THREE.Vector3(0,1.4,0);
+    this.teleportTo(pos);
+    setStatus(`Respawn bei Checkpoint ${i+1}/${checkpoints.length} erreicht`);
   }
 }
 
-// ======= Kamera-Controller (Mausdrag, weich folgend) =======
-let camYaw = 0, camPitch = 0.12;
-let isDragging = false;
-let lastX = 0, lastY = 0;
-canvas.addEventListener("mousedown", (e) => { isDragging = true; lastX = e.clientX; lastY = e.clientY; });
-window.addEventListener("mouseup",   () => { isDragging = false; });
-window.addEventListener("mousemove", (e) => {
-  if (!isDragging) return;
-  const dx = e.clientX - lastX;
-  const dy = e.clientY - lastY;
-  lastX = e.clientX; lastY = e.clientY;
-  camYaw   -= dx * 0.003;
-  camPitch -= dy * 0.003;
-  camPitch = THREE.MathUtils.clamp(camPitch, -1.2, 1.2);
+/* ======= Camera & Input ======= */
+let camYaw=0, camPitch=0.12, isDragging=false, lastX=0, lastY=0;
+canvas.addEventListener("mousedown",e=>{ isDragging=true; lastX=e.clientX; lastY=e.clientY; });
+window.addEventListener("mouseup",()=>{ isDragging=false; });
+window.addEventListener("mousemove",e=>{
+  if(!isDragging) return;
+  const dx=e.clientX-lastX, dy=e.clientY-lastY; lastX=e.clientX; lastY=e.clientY;
+  camYaw-=dx*0.003; camPitch-=dy*0.003; camPitch=THREE.MathUtils.clamp(camPitch,-1.2,1.2);
 });
-window.addEventListener("wheel", (e) => {
-  SETTINGS.camDistance = THREE.MathUtils.clamp(SETTINGS.camDistance + Math.sign(e.deltaY) * 0.6, 3.2, 9.5);
-}, { passive: true });
+window.addEventListener("wheel",e=>{
+  SETTINGS.camDistance = THREE.MathUtils.clamp(SETTINGS.camDistance + Math.sign(e.deltaY)*0.6, 3.2, 10.5);
+},{ passive:true });
 
-// ======= Input =======
-let _pendingJump = false;
-window.addEventListener("keydown", (e) => {
-  const k = e.key.toLowerCase();
-  keys.add(k);
-  if (k === " " || k === "space") _pendingJump = true;
-  if (k === "r") player?.respawn();
-});
-window.addEventListener("keyup", (e) => {
-  keys.delete(e.key.toLowerCase());
-});
+let _pendingJump=false;
+window.addEventListener("keydown",e=>{
+  const k=e.key.toLowerCase(); keys.add(k);
+  if(k===" "||k==="space") _pendingJump=true;
+  if(k==="r") player?.respawn();
 
-// ======= Resize =======
-window.addEventListener("resize", () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
+  // Debug-Toggles
+  if(k==="f1"){ DEBUG.ENABLED=!DEBUG.ENABLED; }
+  if(k==="f2"){ DEBUG.SHOW_STATIC=!DEBUG.SHOW_STATIC; }
+  if(k==="f3"){ DEBUG.SHOW_DYNAMIC=!DEBUG.SHOW_DYNAMIC; }
+});
+window.addEventListener("keyup",e=>{ keys.delete(e.key.toLowerCase()); });
+
+window.addEventListener("resize",()=>{
+  camera.aspect=window.innerWidth/window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// ======= Setup & Loop =======
+/* ======= Boot ======= */
 makeGround();
-
 setStatus("Lade Plattform-Assets…");
 const MODEL_PACK = await loadModelPack(MODEL_PACK_PATHS);
 await makeITWorld(MODEL_PACK);
 
+// BVH aufbauen (merge + computeBoundsTree)
+(function buildBVH(){
+  if(worldCollisionMesh){
+    scene.remove(worldCollisionMesh);
+    if(worldCollisionMesh.geometry && worldCollisionMesh.geometry.dispose) worldCollisionMesh.geometry.dispose();
+    worldCollisionMesh=null;
+  }
+  if(_collisionGeoms.length){
+    const merged = mergeGeometries(_collisionGeoms, false);
+    merged.computeBoundsTree();
+    worldCollisionMesh = new THREE.Mesh(merged, new THREE.MeshBasicMaterial({ visible:false }));
+    scene.add(worldCollisionMesh);
+
+    if(DEBUG.SHOW_BVH){
+      if(worldBVHHelper) scene.remove(worldBVHHelper);
+      worldBVHHelper = new MeshBVHHelper(worldCollisionMesh, 12);
+      worldBVHHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
+      scene.add(worldBVHHelper);
+    }
+  }
+})();
+
 const player = new PlayerController();
+if(checkpoints.length){ setStatus("Lade Charakter…"); }
 
-// Start bei erstem Checkpoint
-if (checkpoints.length) {
-  player.group.position.copy(checkpoints[0].pos);
-  setStatus("Lade Charakter…");
-}
-
-// Checkpoint-Aktualisierung
-function updateCheckpoint() {
-  let closest = 0, bestD = Infinity;
-  for (let i = 0; i < checkpoints.length; i++) {
-    const d = checkpoints[i].pos.distanceToSquared(player.position);
-    if (d < bestD) { bestD = d; closest = i; }
+function updateCheckpoint(){
+  let closest=0, best=Infinity;
+  for(let i=0;i<checkpoints.length;i++){
+    const d=checkpoints[i].pos.distanceToSquared(player.position);
+    if(d<best){ best=d; closest=i; }
   }
-  if (closest !== activeCheckpointIndex && Math.sqrt(bestD) < 4.5) {
-    activeCheckpointIndex = closest;
-    setStatus(`Checkpoint ${activeCheckpointIndex + 1}/${checkpoints.length} erreicht`);
+  if(closest!==activeCheckpointIndex && Math.sqrt(best)<4.5){
+    activeCheckpointIndex=closest;
+    setStatus(`Checkpoint ${activeCheckpointIndex+1}/${checkpoints.length} erreicht`);
   }
 }
-
-// Kamera-Follow (Yaw+Pitch, weich)
-const camTarget = new THREE.Vector3();
-function updateCamera(dt) {
-  const spherical = new THREE.Spherical(SETTINGS.camDistance, Math.PI / 2 - camPitch, camYaw);
-  const offset = new THREE.Vector3().setFromSpherical(spherical);
-  const desired = player.position.clone()
-    .add(new THREE.Vector3(0, SETTINGS.camHeight, 0))
-    .add(offset);
-
-  camera.position.lerp(desired, 1 - Math.pow(1 - SETTINGS.camLag, dt * 60));
-  camTarget.copy(player.position).add(new THREE.Vector3(0, 1.2, 0));
-  camera.lookAt(camTarget);
+const camTarget=new THREE.Vector3();
+function updateCamera(dt){
+  const sph=new THREE.Spherical(SETTINGS.camDistance, Math.PI/2 - camPitch, camYaw);
+  const offset=new THREE.Vector3().setFromSpherical(sph);
+  const desired=player.position.clone().add(new THREE.Vector3(0,SETTINGS.camHeight,0)).add(offset);
+  camera.position.lerp(desired, 1 - Math.pow(1-SETTINGS.camLag, dt*60));
+  camTarget.copy(player.position).add(new THREE.Vector3(0,1.2,0)); camera.lookAt(camTarget);
 }
+let tAccum=0; function updateLighting(dt){ tAccum += dt*0.1; sun.position.set(Math.cos(tAccum)*10, 10+Math.sin(tAccum)*2, 8); }
 
-// leicht dynamisches Sonnenlicht
-let tAccum = 0;
-function updateLighting(dt) {
-  tAccum += dt * 0.1;
-  sun.position.set(Math.cos(tAccum) * 10, 10 + Math.sin(tAccum) * 2, 8);
-}
-
-// Renderloop
-renderer.setAnimationLoop(() => {
-  const dt = Math.min(0.033, clock.getDelta());
+/* ======= LOOP ======= */
+renderer.setAnimationLoop(()=>{
+  const dt=Math.min(0.033, clock.getDelta());
   player.update(dt, camYaw);
   updateCheckpoint();
   updateCamera(dt);
   updateLighting(dt);
+
+  // Debug Sichtbarkeit aktuell halten
+  debugStatic.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
+  if(worldBVHHelper) worldBVHHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC && DEBUG.SHOW_BVH;
+
   renderer.render(scene, camera);
 });
