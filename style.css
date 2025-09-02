@@ -1,19 +1,26 @@
-/* ===== Reset & Base ======================================================= */
+/* ===== Reset & Basis ===================================================== */
 * { box-sizing: border-box; }
 html, body { height: 100%; }
+
 :root{
   --bg: #0b1220;
   --fg: #e9f3ff;
   --muted: #9bb0c9;
+
   --card: rgba(14,22,35,0.55);
   --card-strong: rgba(22,34,53,0.75);
   --border: rgba(255,255,255,0.12);
+
   --accent: #56b6ff;
   --accent-2: #8ef2d0;
+
   --shadow: 0 20px 60px rgba(0,0,0,0.35);
   --radius: 16px;
   --blur: 10px;
   --speed: 220ms;
+
+  /* mehrfach genutzter Verlauf */
+  --grad-accent: linear-gradient(90deg, var(--accent), var(--accent-2));
 }
 
 @media (prefers-color-scheme: light) {
@@ -21,6 +28,7 @@ html, body { height: 100%; }
     --bg: #bfe8ff;
     --fg: #0b1220;
     --muted: #34506f;
+
     --card: rgba(255,255,255,0.7);
     --card-strong: rgba(255,255,255,0.8);
     --border: rgba(10,30,60,0.15);
@@ -28,7 +36,7 @@ html, body { height: 100%; }
   }
 }
 
-body {
+body{
   margin: 0;
   font-family: system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
   color: var(--fg);
@@ -37,43 +45,47 @@ body {
     radial-gradient(900px 600px at 0% 100%, rgba(142,242,208,0.18), transparent 70%),
     var(--bg);
   overflow: hidden;
-  letter-spacing: 0.2px;
+  letter-spacing: .2px;
 }
 
-/* ===== Canvas (unter alles legen, damit UI klickbar ist) ================== */
-#app {
-  position: fixed;
-  inset: 0;
+/* ===== Canvas unter der UI (UI bleibt klickbar) ========================= */
+#app{
+  position: fixed; inset: 0;
   display: block;
-  width: 100vw;
-  height: 100vh;
+  width: 100vw; height: 100vh;
   outline: none;
   z-index: 0;
 }
 
-/* Subtiles Rauschen oben drüber für „Game“-Look */
+/* feines „Game“-Rauschen darüber */
 body::after{
   content:"";
   position: fixed; inset:0;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='table' tableValues='0 0 0 .035 .07'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E");
   opacity:.15;
-  pointer-events: none;
   mix-blend-mode: soft-light;
+  pointer-events: none;
 }
 
-/* ===== Screens (Menu / Loading / Pause) ================================== */
+/* ===== Screens (Menu / Loading / Pause) ================================= */
 .screen{
   position: fixed; inset: 0;
   display: grid; place-items: center;
   padding: 24px;
+
   visibility: hidden;
   opacity: 0;
   transform: translateY(8px) scale(.98);
-  transition: opacity var(--speed) ease, transform var(--speed) ease, visibility var(--speed) step-end;
-  pointer-events: none; /* Basis: nicht klickbar */
-  z-index: 20; /* klar über Canvas */
+  transition:
+    opacity var(--speed) ease,
+    transform var(--speed) ease,
+    visibility var(--speed) step-end;
+
+  pointer-events: none;
+  z-index: 20; /* über Canvas, unter HUD-Overlay */
 }
 
+/* standardisierte Kartenoptik der Screens */
 .screen > .menu-card,
 .screen > .loading-card,
 .screen > .pause-card{
@@ -87,18 +99,21 @@ body::after{
 }
 
 /* Sichtbarkeit/Klickbarkeit je nach App-State */
-body[data-screen="menu"] #menu,
-body[data-screen="loading"] #loading,
+body[data-screen="menu"]   #menu,
+body[data-screen="loading"]#loading,
 body[data-screen="paused"] #pause{
   visibility: visible;
   opacity: 1;
   transform: none;
-  pointer-events: auto; /* nur sichtbare Screens sind klickbar */
-  transition: opacity var(--speed) ease, transform var(--speed) ease, visibility 0s;
+  pointer-events: auto;
+  transition:
+    opacity var(--speed) ease,
+    transform var(--speed) ease,
+    visibility 0s;
 }
 
-/* Sicherheitsnetz: Im Spiel ALLE Screens unsichtbar & nicht klickbar */
-body[data-screen="game"] .screen {
+/* im Spiel keine Screen-Ebene */
+body[data-screen="game"] .screen{
   visibility: hidden !important;
   opacity: 0 !important;
   pointer-events: none !important;
@@ -115,7 +130,7 @@ body[data-screen="game"] .screen {
 }
 .game-title span{
   font-weight: 800;
-  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  background: var(--grad-accent);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -126,18 +141,26 @@ body[data-screen="game"] .screen {
   margin: 12px 0 8px;
 }
 
+/* Buttons: Basis + Varianten */
 .btn{
-  appearance: none; border: 1px solid var(--border);
+  appearance: none;
   background: var(--card-strong);
   color: var(--fg);
-  padding: 10px 14px; border-radius: 12px;
+
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 14px;
+
   font-weight: 600; letter-spacing: .3px;
-  cursor: pointer; transition: transform .08s ease, box-shadow .2s ease, background .2s ease;
+  cursor: pointer;
+
   box-shadow: 0 6px 16px rgba(0,0,0,0.15);
+  transition: transform .08s ease, box-shadow .2s ease, background .2s ease;
 }
-.btn:hover{ transform: translateY(-1px); }
-.btn:active{ transform: translateY(0); }
+.btn:hover  { transform: translateY(-1px); }
+.btn:active { transform: translateY(0); }
 .btn:focus-visible{ outline: 2px solid var(--accent); outline-offset: 2px; }
+
 .btn-primary{
   background: linear-gradient(180deg, rgba(86,182,255,.9), rgba(86,182,255,.7));
   border-color: rgba(86,182,255,.55);
@@ -148,31 +171,36 @@ body[data-screen="game"] .screen {
   border-color: var(--border);
 }
 
-.hint{
-  margin-top: 14px; color: var(--muted);
-}
+.hint{ margin-top: 14px; color: var(--muted); }
 .hint.small{ font-size: .9rem; }
 
 kbd{
   background: rgba(255,255,255,.12);
   border: 1px solid var(--border);
   border-bottom-width: 2px;
-  padding: 2px 6px; border-radius: 6px; font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-weight: 700;
 }
 
+/* Untermenüs (Optionen/Credits) */
 .menu-sub{ margin-top: 8px; }
 .menu-sub.hidden{ display:none; }
 .menu-sub .panel-content{ display: none; }
 .menu-sub .panel-content.active{ display: block; }
 
+/* einfache Formularzeile */
 .field{
-  display: grid; grid-template-columns: 1fr auto;
-  align-items: center; gap: 12px; margin: 10px 0 14px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 12px;
+  margin: 10px 0 14px;
 }
 .field input[type="range"]{ width: 220px; }
 
 /* Credits Liste */
-.credits-list {
+.credits-list{
   margin: 6px 0 0;
   padding-left: 18px;
 }
@@ -184,10 +212,12 @@ kbd{
   margin-bottom: 14px;
 }
 .loader-logo span{
-  background: linear-gradient(90deg, var(--accent), var(--accent-2));
-  -webkit-background-clip: text; background-clip: text; color: transparent;
+  background: var(--grad-accent);
+  -webkit-background-clip: text; background-clip: text;
+  color: transparent;
 }
 
+/* Fortschrittsbalken */
 .progress{
   --h: 12px;
   width: min(520px, 92vw);
@@ -201,7 +231,7 @@ kbd{
 .progress .bar{
   height: 100%;
   width: calc(var(--pct, 0) * 1%);
-  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  background: var(--grad-accent);
   transition: width 140ms ease;
 }
 
@@ -210,18 +240,17 @@ kbd{
   margin-top: 10px;
 }
 
-/* ===== HUD (im Spiel sichtbar) =========================================== */
+/* ===== HUD (nur im Spiel sichtbar) ====================================== */
 #hud{
-  position: fixed;
-  inset: 0 auto auto 0;
+  position: fixed; inset: 0 auto auto 0;
   padding: 12px;
-  pointer-events: none;
+  pointer-events: none; /* keine Klicks „einsammeln“ */
   opacity: 0;
   transition: opacity var(--speed) ease;
   z-index: 10; /* zwischen Canvas und Screens */
 }
-#hud .panel {
-  pointer-events: auto;
+#hud .panel{
+  pointer-events: auto; /* Inhalt bleibt bedienbar */
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -230,19 +259,19 @@ kbd{
   max-width: 420px;
   backdrop-filter: blur(6px);
 }
-#hud h1 {
-  font-size: 18px;
-  margin: 0 0 6px 0;
-}
+#hud h1{ font-size: 18px; margin: 0 0 6px; }
 #hud p { margin: 6px 0; }
 #status { font-weight: 600; }
 
+/* HUD an, wenn Spiel aktiv */
 body[data-screen="game"] #hud{ opacity: 1; }
 
 /* ===== Noscript =========================================================== */
 .noscript{
-  position: fixed; inset: 0; display: grid; place-items: center;
-  background: #111; color: white; z-index: 99999;
+  position: fixed; inset: 0;
+  display: grid; place-items: center;
+  background: #111; color: #fff;
+  z-index: 99999;
 }
 
 /* ===== Motion Preferences ================================================= */

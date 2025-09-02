@@ -4,65 +4,63 @@
     <meta charset="utf-8" />
     <title>Only Up – IT Edition (three.js)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
     <link rel="stylesheet" href="./style.css" />
-    <meta name="color-scheme" content="dark light" />
   </head>
-  <!-- App-State via data-screen: menu | loading | game | paused -->
-  <body data-screen="menu">
-    <noscript>
-      <div class="noscript">Dieses Spiel benötigt JavaScript.</div>
-    </noscript>
 
-    <!-- Homescreen / Hauptmenü -->
+  <!-- App-State: menu | loading | game | paused -->
+  <body data-screen="menu">
+    <noscript><div class="noscript">Dieses Spiel benötigt JavaScript.</div></noscript>
+
+    <!-- Hauptmenü / Homescreen -->
     <section id="menu" class="screen screen--menu" aria-label="Hauptmenü">
       <div class="menu-card">
         <h1 class="game-title">Only Up <span>IT Edition</span></h1>
 
         <div class="menu-actions">
-          <button id="btn-start" class="btn btn-primary">▶ Spiel starten</button>
+          <button id="btn-start"   class="btn btn-primary">▶ Spiel starten</button>
           <button id="btn-options" class="btn">⚙︎ Optionen</button>
           <button id="btn-credits" class="btn">ℹ︎ Credits</button>
         </div>
 
+        <!-- Untermenüs (per JS umschalten) -->
         <div id="menu-sub" class="menu-sub hidden" role="region" aria-live="polite">
-          <!-- Inhalte werden per JS umgeschaltet -->
-         <div data-panel="options" class="panel-content">
-  <h2>Optionen</h2>
+          <div data-panel="options" class="panel-content">
+            <h2>Optionen</h2>
 
-  <label class="field">
-    <span>Grafikqualität</span>
-    <select id="opt-quality">
-      <option value="high" selected>Hoch</option>
-      <option value="medium">Mittel</option>
-      <option value="low">Niedrig</option>
-    </select>
-  </label>
+            <label class="field">
+              <span>Grafikqualität</span>
+              <select id="opt-quality">
+                <option value="high" selected>Hoch</option>
+                <option value="medium">Mittel</option>
+                <option value="low">Niedrig</option>
+              </select>
+            </label>
 
-  <!-- NEU: Maus-Empfindlichkeit -->
-  <label class="field">
-    <span>Maus-Empfindlichkeit</span>
-    <input id="opt-sens" type="range" min="0.2" max="3" step="0.05" value="1" />
-  </label>
-  <p class="hint small">Aktuell: <span id="opt-sens-val">1.00×</span></p>
+            <label class="field">
+              <span>Maus-Empfindlichkeit</span>
+              <input id="opt-sens" type="range" min="0.2" max="3" step="0.05" value="1" />
+            </label>
+            <p class="hint small">Aktuell: <span id="opt-sens-val">1.00×</span></p>
 
-  <button id="btn-back-1" class="btn btn-ghost">← Zurück</button>
-</div>
+            <button id="btn-back-1" class="btn btn-ghost">← Zurück</button>
+          </div>
 
+          <div data-panel="credits" class="panel-content">
+            <h2>Credits</h2>
+            <ul class="credits-list">
+              <li>Alejandor</li>
+              <li>Kristian</li>
+              <li>Linus</li>
+            </ul>
+            <button id="btn-back-2" class="btn btn-ghost">← Zurück</button>
+          </div>
+        </div>
 
-          <!-- im Menü, innerhalb #menu-sub -->
-<div data-panel="credits" class="panel-content">
-  <h2>Credits</h2>
-  <ul class="credits-list">
-    <li>Alejandor</li>
-    <li>Kristian</li>
-    <li>Linus</li>
-  </ul>
-  <button id="btn-back-2" class="btn btn-ghost">← Zurück</button>
-</div>
-
-
-        <p class="hint">Drücke <kbd>WASD</kbd> zum Bewegen, <kbd>Leertaste</kbd> zum Springen. <kbd>ESC</kbd> öffnet das Pause-Menü.</p>
+        <p class="hint">
+          Drücke <kbd>WASD</kbd> zum Bewegen, <kbd>Leertaste</kbd> zum Springen. <kbd>ESC</kbd> öffnet das Pause-Menü.
+        </p>
       </div>
     </section>
 
@@ -78,14 +76,14 @@
       </div>
     </section>
 
-    <!-- Pause-Menü (optional) -->
+    <!-- Pause-Menü -->
     <section id="pause" class="screen screen--pause" aria-label="Pause-Menü">
       <div class="pause-card">
         <h2>Pause</h2>
         <div class="menu-actions">
-          <button id="btn-resume" class="btn btn-primary">Weiter</button>
+          <button id="btn-resume"  class="btn btn-primary">Weiter</button>
           <button id="btn-restart" class="btn">Neu starten</button>
-          <button id="btn-quit" class="btn btn-ghost">Zum Hauptmenü</button>
+          <button id="btn-quit"    class="btn btn-ghost">Zum Hauptmenü</button>
         </div>
         <p class="hint small">Drücke <kbd>ESC</kbd>, um fortzufahren.</p>
       </div>
@@ -96,18 +94,19 @@
       <div class="panel">
         <h1>Only Up – IT Edition</h1>
         <p>
-          <strong>Steuerung:</strong><br/>
-          WASD/←→↑↓ = Laufen &nbsp;|&nbsp; Leertaste = Springen &nbsp;|&nbsp; Shift = Sprint<br/>
-          Maus ziehen = Kamera drehen &nbsp;|&nbsp; Mausrad = Zoom<br/>
+          <strong>Steuerung:</strong><br>
+          WASD/←→↑↓ = Laufen &nbsp;|&nbsp; Leertaste = Springen &nbsp;|&nbsp; Shift = Sprint<br>
+          Maus ziehen = Kamera drehen &nbsp;|&nbsp; Mausrad = Zoom<br>
           R = Respawn &nbsp;|&nbsp; F1/F2/F3 = Debug Toggle
         </p>
         <p id="status">Bereit.</p>
       </div>
     </div>
 
+    <!-- Canvas immer ganz unten -->
     <canvas id="app" tabindex="0" aria-label="3D Szene"></canvas>
 
-    <!-- three.js -->
+    <!-- three.js Importmap -->
     <script type="importmap">
       {
         "imports": {
@@ -116,7 +115,7 @@
       }
     </script>
 
-    <!-- Dein Spiel -->
+    <!-- Spiel-Logik -->
     <script type="module" src="./main.js"></script>
   </body>
 </html>

@@ -7,7 +7,6 @@ import { MeshoptDecoder } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examp
 import * as SkeletonUtils from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/utils/SkeletonUtils.js";
 import { Capsule } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/math/Capsule.js";
 import { mergeGeometries } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js";
-
 import {
   MeshBVHHelper,
   acceleratedRaycast,
@@ -15,116 +14,102 @@ import {
   disposeBoundsTree
 } from "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.9.1/build/index.module.js";
 
-// BVH-Features auf three.js registrieren
+// BVH an three.js hängen
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
-THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
-THREE.Mesh.prototype.raycast = acceleratedRaycast;
+THREE.BufferGeometry.prototype.disposeBoundsTree  = disposeBoundsTree;
+THREE.Mesh.prototype.raycast                     = acceleratedRaycast;
 
 
 // ============================= UI / Screens ================================
-const $  = (s, r=document) => r.querySelector(s);
-const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
+const q  = (s, r=document) => r.querySelector(s);
+const qq = (s, r=document) => Array.from(r.querySelectorAll(s));
+const { clamp, damp } = THREE.MathUtils;
+
 const body = document.body;
+if (!body.hasAttribute("data-screen")) body.setAttribute("data-screen", "menu");
 
-const canvas = $("#app");
-const statusEl = $("#status");
-const hud = $("#hud");
+const UI = {
+  canvas:      q("#app"),
+  status:      q("#status"),
+  menuSub:     q("#menu-sub"),
+  loadingBar:  q("#loading-bar"),
+  loadingText: q("#loading-text"),
 
-// Menu / Loading / Pause Controls
-const btnStart   = $("#btn-start");
-const btnOptions = $("#btn-options");
-const btnCredits = $("#btn-credits");
-const btnBack1   = $("#btn-back-1");
-const btnBack2   = $("#btn-back-2");
+  btnStart:    q("#btn-start"),
+  btnOptions:  q("#btn-options"),
+  btnCredits:  q("#btn-credits"),
+  btnBack1:    q("#btn-back-1"),
+  btnBack2:    q("#btn-back-2"),
 
-const btnResume  = $("#btn-resume");
-const btnRestart = $("#btn-restart");
-const btnQuit    = $("#btn-quit");
+  btnResume:   q("#btn-resume"),
+  btnRestart:  q("#btn-restart"),
+  btnQuit:     q("#btn-quit"),
 
-const loadingBar  = $("#loading-bar");
-const loadingText = $("#loading-text");
+  sensSlider:  q("#opt-sens"),
+  sensVal:     q("#opt-sens-val"),
+};
 
-// ---- Benutzer-Optionen (persistiert) ----
 const INPUT = {
   mouseSens: parseFloat(localStorage.getItem("onlyup.mouseSens")) || 1.0
 };
 
-// UI-Hooks für Maus-Sens
-const sensSlider = document.querySelector("#opt-sens");
-const sensVal    = document.querySelector("#opt-sens-val");
-
-// Initial anzeigen + speichern bei Änderung
-if (sensSlider) {
-  sensSlider.value = String(INPUT.mouseSens);
-  if (sensVal) sensVal.textContent = `${Number(INPUT.mouseSens).toFixed(2)}×`;
-
-  const applySens = () => {
-    INPUT.mouseSens = parseFloat(sensSlider.value) || 1.0;
-    localStorage.setItem("onlyup.mouseSens", String(INPUT.mouseSens));
-    if (sensVal) sensVal.textContent = `${INPUT.mouseSens.toFixed(2)}×`;
-  };
-
-  sensSlider.addEventListener("input", applySens);
-  sensSlider.addEventListener("change", applySens);
-}
-
-
-if (!body.hasAttribute("data-screen")) body.setAttribute("data-screen", "menu");
-
 function setScreen(name){
   body.setAttribute("data-screen", name);
-  if (name === "game") {
-    canvas?.focus({ preventScroll: true });
-  }
+  if (name === "game") UI.canvas?.focus({ preventScroll: true });
 }
 function openSubPanel(name){
-  const sub = $("#menu-sub");
-  sub.classList.remove("hidden");
-  $$(".menu-sub .panel-content").forEach(p => p.classList.toggle("active", p.dataset.panel === name));
+  UI.menuSub?.classList.remove("hidden");
+  qq(".menu-sub .panel-content").forEach(p => p.classList.toggle("active", p.dataset.panel === name));
 }
-function closeSubPanel(){
-  $("#menu-sub")?.classList.add("hidden");
-}
-function setStatus(t){ if (statusEl) statusEl.textContent = t; }
+function closeSubPanel(){ UI.menuSub?.classList.add("hidden"); }
+function setStatus(t){ if (UI.status) UI.status.textContent = t; }
 function setLoadingPercent(pct){
-  const p = Math.max(0, Math.min(100, Math.round(pct)));
-  loadingBar?.style.setProperty("--pct", p);
-  if (loadingText) loadingText.textContent = `Lade Assets… ${p}%`;
-  const prog = $(".progress");
-  if (prog) prog.setAttribute("aria-valuenow", String(p));
+  const p = clamp(Math.round(pct), 0, 100);
+  UI.loadingBar?.style.setProperty("--pct", p);
+  UI.loadingText && (UI.loadingText.textContent = `Lade Assets… ${p}%`);
+  q(".progress")?.setAttribute("aria-valuenow", String(p));
 }
 
-// Menü Interaktionen
-btnStart?.addEventListener("click", async () => {
-  await startGame(); // startet Laden + Welt + Loop
-});
-btnOptions?.addEventListener("click", () => openSubPanel("options"));
-btnCredits?.addEventListener("click", () => openSubPanel("credits"));
-btnBack1  ?.addEventListener("click", closeSubPanel);
-btnBack2  ?.addEventListener("click", closeSubPanel);
+// Maus-Sens Schieber -> Zustand + Anzeige
+if (UI.sensSlider) {
+  UI.sensSlider.value = String(INPUT.mouseSens);
+  if (UI.sensVal) UI.sensVal.textContent = `${INPUT.mouseSens.toFixed(2)}×`;
+  const applySens = () => {
+    INPUT.mouseSens = parseFloat(UI.sensSlider.value) || 1.0;
+    localStorage.setItem("onlyup.mouseSens", String(INPUT.mouseSens));
+    UI.sensVal && (UI.sensVal.textContent = `${INPUT.mouseSens.toFixed(2)}×`);
+  };
+  UI.sensSlider.addEventListener("input", applySens);
+  UI.sensSlider.addEventListener("change", applySens);
+}
 
-// Pause-Interaktionen
-btnResume ?.addEventListener("click", () => setPaused(false));
-btnRestart?.addEventListener("click", () => { setPaused(false); player?.respawn(); });
-btnQuit   ?.addEventListener("click", () => { setPaused(true); setScreen("menu"); });
+// Menü-Buttons
+UI.btnStart   ?.addEventListener("click", startGame);
+UI.btnOptions ?.addEventListener("click", () => openSubPanel("options"));
+UI.btnCredits ?.addEventListener("click", () => openSubPanel("credits"));
+UI.btnBack1   ?.addEventListener("click", closeSubPanel);
+UI.btnBack2   ?.addEventListener("click", closeSubPanel);
 
+// Pause-Buttons
+UI.btnResume  ?.addEventListener("click", () => setPaused(false));
+UI.btnRestart ?.addEventListener("click", () => { setPaused(false); player?.respawn(); });
+UI.btnQuit    ?.addEventListener("click", () => { setPaused(true); setScreen("menu"); });
+
+// ESC toggelt Pause
 window.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") {
-    if (body.getAttribute("data-screen") === "game") {
-      setPaused(true); setScreen("paused");
-    } else if (body.getAttribute("data-screen") === "paused") {
-      setPaused(false); setScreen("game");
-    }
-  }
+  if (e.key !== "Escape") return;
+  const s = body.getAttribute("data-screen");
+  if (s === "game")  { setPaused(true);  setScreen("paused"); }
+  if (s === "paused"){ setPaused(false); setScreen("game");   }
 });
 
 
 // ============================= Config / Debug ==============================
 const DEBUG = {
   ENABLED: true,
-  SHOW_STATIC: true,     // F2: Boden-/BBox-/BVH-Helpers
-  SHOW_CAPSULE: false,   // F4: Spieler-Kapsel anzeigen
-  SHOW_BVH: false        // F3: BVH-Helper (Performance!)
+  SHOW_STATIC: true,
+  SHOW_CAPSULE: false,
+  SHOW_BVH: false
 };
 const DEBUG_COLORS = {
   bbox: 0x3b82f6,
@@ -152,11 +137,15 @@ const TARGET_WIDTH_BY_CAT = {
   monitor:2.2, chair:2.2, computer:2.0, mouse:2.0, phone:2.0,
   stapler:2.0, headphones:2.0, generic:2.5
 };
+
 const SETTINGS = {
   gravity: 24, moveSpeed: 7.0, sprintMult: 1.5, jumpSpeed: 9.5,
   airControl: 0.45, camDistance: 5.8, camHeight: 2.2, camLag: 0.12,
   playerRadius: 0.35, playerHeight: 1.7, fallY: -80,
-  maxAirJumps: 1, doubleJumpMult: 0.92
+  maxAirJumps: 1, doubleJumpMult: 0.92,
+  // Coyote / Jumpbuffer
+  coyoteTime: 0.12,
+  jumpBuffer: 0.12
 };
 const WALKABLE_NORMAL_Y = 0.6;
 const TERMINAL_FALL_SPEED = -40;
@@ -173,7 +162,7 @@ const KEEP_Y_SCALE       = true;
 
 
 // ============================= Renderer / Scene ============================
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
+const renderer = new THREE.WebGLRenderer({ canvas: UI.canvas, antialias: true, powerPreference: "high-performance" });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
@@ -200,24 +189,16 @@ scene.add(sun);
 
 
 // ============================= Loaders/Manager =============================
-let loadingManager = null;
-let gltfLoader = null;
-let draco = null;
-let ktx2  = null;
+let loadingManager, gltfLoader, draco, ktx2;
 
 function setupLoaders(){
   loadingManager = new THREE.LoadingManager();
-
-  loadingManager.onStart = () => { setScreen("loading"); setLoadingPercent(0); };
-  loadingManager.onProgress = (_url, loaded, total) => {
-    const pct = total ? (loaded/total)*100 : 10;
-    setLoadingPercent(pct);
-  };
-  loadingManager.onLoad = () => {
-    setLoadingPercent(100);
-  };
+  loadingManager.onStart    = () => { setScreen("loading"); setLoadingPercent(0); };
+  loadingManager.onProgress = (_url, loaded, total) => setLoadingPercent(total ? (loaded/total)*100 : 10);
+  loadingManager.onLoad     = () => setLoadingPercent(100);
 
   gltfLoader = new GLTFLoader(loadingManager);
+
   draco = new DRACOLoader();
   draco.setDecoderPath("https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/");
   gltfLoader.setDRACOLoader(draco);
@@ -243,14 +224,14 @@ scene.add(debugStatic);
 
 let player = null;
 let isPaused = false;
-function setPaused(v){ isPaused = v; }
+const setPaused = (v) => { isPaused = v; };
 
 
 // ============================= Utils =======================================
 function inferModelCategory(nameLower){
   for (const [cat, words] of Object.entries(MODEL_CATEGORIES)) {
     if (!words.length) continue;
-    for (const w of words) if (nameLower.indexOf(w) !== -1) return cat;
+    for (const w of words) if (nameLower.includes(w)) return cat;
   }
   return "generic";
 }
@@ -260,31 +241,33 @@ function computeBBox(obj){
   const center=new THREE.Vector3(); box.getCenter(center);
   return {box,size,center};
 }
-function escapeLiteralPercents(p){ return p.replace(/%/g,"%25"); }
+const escapeLiteralPercents = (p) => p.replace(/%/g,"%25");
 function expandPathCandidates(p){
-  const v=[p,encodeURI(p),escapeLiteralPercents(p),encodeURI(escapeLiteralPercents(p))];
-  const out=[]; for(const x of v){ out.push(x); if(x.indexOf("/")===-1) out.push("assets/models/"+x); }
-  const seen=new Set(); const res=[]; for(const k of out){ if(!seen.has(k)){ seen.add(k); res.push(k); } }
-  return res;
+  const base=[p,encodeURI(p),escapeLiteralPercents(p),encodeURI(escapeLiteralPercents(p))];
+  const out=[];
+  for(const x of base){ out.push(x); if(!x.includes("/")) out.push("assets/models/"+x); }
+  return Array.from(new Set(out));
 }
 function loadGLBWithFallback(paths){
+  const list = paths.slice();
   return new Promise((res,rej)=>{
-    const list=paths.slice();
-    const nxt=()=>{ if(!list.length) return rej(new Error("Alle GLB-Pfade fehlgeschlagen"));
-      const url=list.shift(); gltfLoader.load(url,g=>res({g,url}),undefined,nxt); };
-    nxt();
+    const next = () => {
+      if (!list.length) return rej(new Error("Alle GLB-Pfade fehlgeschlagen"));
+      const url = list.shift();
+      gltfLoader.load(url, g => res({ g, url }), undefined, next);
+    };
+    next();
   });
 }
 async function loadOneModel(path){
   const { g, url } = await loadGLBWithFallback(expandPathCandidates(path));
-  const root = g.scene || (g.scenes && g.scenes[0]);
+  const root = g.scene || g.scenes?.[0];
   root.traverse(o=>{
-    if(o.isMesh){
-      o.castShadow=true; o.receiveShadow=true;
-      if(o.material){
-        o.material.side=THREE.FrontSide;
-        if(o.material.transparent && o.material.opacity===0){ o.material.opacity=1; o.material.transparent=false; }
-      }
+    if(!o.isMesh) return;
+    o.castShadow = o.receiveShadow = true;
+    if (o.material){
+      o.material.side = THREE.FrontSide;
+      if (o.material.transparent && o.material.opacity === 0){ o.material.opacity = 1; o.material.transparent = false; }
     }
   });
   const tmp = computeBBox(root);
@@ -293,28 +276,29 @@ async function loadOneModel(path){
 async function loadModelPack(paths){
   const results=[];
   for(const p of paths){ try{ results.push(await loadOneModel(p)); }catch(e){ console.warn("Konnte Modell nicht laden:",p,e);} }
-  const byCat={}; for(const k of Object.keys(MODEL_CATEGORIES)) byCat[k]=[];
-  for(const m of results){ if(byCat[m.category]) byCat[m.category].push(m); }
-  const all=results.slice(0);
-  for(const k of Object.keys(MODEL_CATEGORIES)){ if(byCat[k].length===0) byCat[k]=byCat.generic.length?byCat.generic:all; }
+  const byCat = Object.fromEntries(Object.keys(MODEL_CATEGORIES).map(k=>[k,[]]));
+  for(const m of results){ byCat[m.category]?.push(m); }
+  const all=results.slice();
+  for(const k of Object.keys(byCat)){ if(!byCat[k].length) byCat[k] = byCat.generic.length ? byCat.generic : all; }
   return { byCat, all };
 }
-function pickModel(pack, preferredCats){
-  for(const c of preferredCats){ const arr=pack.byCat[c]; if(arr && arr.length) return arr[(Math.random()*arr.length)|0]; }
-  const all=pack.all; return all[(Math.random()*all.length)|0];
+function pickModel(pack, cats){
+  for(const c of cats){ const arr = pack.byCat[c]; if (arr?.length) return arr[(Math.random()*arr.length)|0]; }
+  const all = pack.all; return all[(Math.random()*all.length)|0];
 }
 function scaledSizeFor(modelDef, targetWidth){
   const baseXZ = Math.max(modelDef.baseSize.x, modelDef.baseSize.z);
   const s = baseXZ>1e-4 ? targetWidth/baseXZ : 1;
   return new THREE.Vector3(modelDef.baseSize.x*s, modelDef.baseSize.y*s, modelDef.baseSize.z*s);
 }
-function diagRadius(size){ return 0.5 * Math.hypot(size.x, size.z); }
+const diagRadius = (size) => 0.5 * Math.hypot(size.x, size.z);
 
 
 // ============================= Collision Baking ============================
 function bakeMeshToCollision(mesh){
-  if(!mesh.geometry || !mesh.geometry.isBufferGeometry) return;
-  let g = mesh.geometry.clone();
+  const g0 = mesh.geometry;
+  if(!g0?.isBufferGeometry) return;
+  let g = g0.clone();
   if (g.index) g = g.toNonIndexed();
   mesh.updateWorldMatrix(true,false);
   g.applyMatrix4(mesh.matrixWorld);
@@ -323,106 +307,121 @@ function bakeMeshToCollision(mesh){
 }
 
 
-// ============================= Platforms/Ground ============================
-function placeModelPlatform(modelDef, { position=new THREE.Vector3(), yaw=0, targetWidth=2.5 } = {}){
-  const root = SkeletonUtils.clone(modelDef.template);
-  const baseXZ = Math.max(modelDef.baseSize.x, modelDef.baseSize.z);
-  const baseScale = baseXZ>1e-4 ? (targetWidth/baseXZ) : 1;
-  const sXZ = baseScale * PLATFORM_SIZE_MULT;
-  const sY  = KEEP_Y_SCALE ? baseScale : sXZ;
-  root.scale.set(sXZ, sY, sXZ);
-  root.updateMatrixWorld(true);
-
-  const tmp = computeBBox(root);
-  const group = new THREE.Group();
-  root.position.y -= tmp.box.min.y;
-  group.rotation.y = yaw; group.position.copy(position);
-  group.add(root); scene.add(group);
-
-  root.traverse(o=>{ if(o.isMesh) bakeMeshToCollision(o); });
-
-  const helper = new THREE.Box3Helper(new THREE.Box3().setFromObject(root), DEBUG_COLORS.bbox);
-  helper.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
-  debugStatic.add(helper);
-
-  return { group, size: tmp.size.clone() };
-}
-function makeBoxPlatform(w=4, h=0.3, d=2, pos=new THREE.Vector3(), yaw=0){
-  const W = w * PLATFORM_SIZE_MULT;
-  const D = d * PLATFORM_SIZE_MULT;
-  const H = KEEP_Y_SCALE ? h : h * PLATFORM_SIZE_MULT;
-
-  const group=new THREE.Group(); group.position.copy(pos); group.rotation.y=yaw;
-  const mesh=new THREE.Mesh(new THREE.BoxGeometry(W,H,D), new THREE.MeshStandardMaterial({ color:0xCFE6FF, roughness:0.9, metalness:0.05 }));
-  mesh.castShadow=true; mesh.receiveShadow=true; mesh.position.y=H*0.5; group.add(mesh); scene.add(group);
-  bakeMeshToCollision(mesh);
-
-  const helper = new THREE.Box3Helper(new THREE.Box3().setFromObject(mesh), DEBUG_COLORS.bbox);
-  helper.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
-  debugStatic.add(helper);
-
-  return { group, size:new THREE.Vector3(W,H,D) };
-}
+// ============================= Boden: Inselwelt ============================
 function makeGround(){
-  const groundVis = new THREE.Mesh(new THREE.PlaneGeometry(26,26), new THREE.MeshStandardMaterial({ color:0xEAF4FF, roughness:0.95, metalness:0.05 }));
-  groundVis.rotation.x = -Math.PI/2; groundVis.receiveShadow = true; scene.add(groundVis);
+  const R_TOP = 60;   // begehbarer Radius
+  const R_BASE = 80;  // Fuß der Insel
+  const H     = 16;   // Höhe nach unten
+  const SEG   = 64;
 
-  const groundCol = new THREE.Mesh(new THREE.BoxGeometry(28, 0.4, 28), new THREE.MeshBasicMaterial({ visible:false }));
-  groundCol.position.y = -0.2; scene.add(groundCol);
-  bakeMeshToCollision(groundCol);
+  // Wasser (Deko)
+  const water = new THREE.Mesh(
+    new THREE.CircleGeometry(400, 72),
+    new THREE.MeshStandardMaterial({ color: 0x9ad7ff, metalness: 0.1, roughness: 0.85, transparent: true, opacity: 0.95 })
+  );
+  water.rotation.x = -Math.PI/2;
+  water.position.y = -0.06;
+  water.receiveShadow = true;
+  scene.add(water);
 
-  const eg = new THREE.EdgesGeometry(groundCol.geometry);
-  const lines = new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color:DEBUG_COLORS.groundEdge }));
-  lines.matrixAutoUpdate=false; lines.applyMatrix4(groundCol.matrixWorld);
-  lines.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
-  debugStatic.add(lines);
+  // Inselkörper (sichtbar + Kollision)
+  const island = new THREE.Mesh(
+    new THREE.CylinderGeometry(R_TOP, R_BASE, H, SEG, 1, false),
+    new THREE.MeshStandardMaterial({ color: 0xEAF4FF, roughness: 0.95, metalness: 0.05 })
+  );
+  island.position.y = -H*0.5; // Oberseite auf y=0
+  island.receiveShadow = true;
+  scene.add(island);
+  bakeMeshToCollision(island);
 
+  // Oberkanten-Linie (optional mit Debug sichtbar)
+  const rimEdges = new THREE.EdgesGeometry(new THREE.CylinderGeometry(R_TOP, R_TOP, 0.02, SEG));
+  const rim = new THREE.LineSegments(rimEdges, new THREE.LineBasicMaterial({ color: DEBUG_COLORS.groundEdge }));
+  rim.position.y = 0.01;
+  rim.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
+  debugStatic.add(rim);
+
+  // Deko-Linien im Kreis
   const deco = new THREE.Group(); deco.position.y = 0.001; scene.add(deco);
-  for(let i=0;i<120;i++){
-    const w=Math.random()*0.02+0.006, l=Math.random()*6+1.5;
-    const line = new THREE.Mesh(new THREE.BoxGeometry(w,0.002,l), new THREE.MeshStandardMaterial({ color:0x007aff, emissive:0x5fbaff, emissiveIntensity:0.35, roughness:0.4, metalness:0.6 }));
-    line.position.set((Math.random()-0.5)*24,0,(Math.random()-0.5)*24);
-    line.rotation.y=Math.random()*Math.PI; line.receiveShadow=true; deco.add(line);
+  const rndInDisk = (r)=>{
+    const t = Math.random()*Math.PI*2, rr = Math.sqrt(Math.random())*(r-2);
+    return new THREE.Vector3(Math.cos(t)*rr, 0, Math.sin(t)*rr);
+  };
+  for(let i=0;i<140;i++){
+    const w=Math.random()*0.02+0.006, l=Math.random()*5.5+1.2;
+    const line = new THREE.Mesh(
+      new THREE.BoxGeometry(w,0.002,l),
+      new THREE.MeshStandardMaterial({ color:0x007aff, emissive:0x5fbaff, emissiveIntensity:0.32, roughness:0.4, metalness:0.6 })
+    );
+    const p = rndInDisk(R_TOP - 2);
+    line.position.set(p.x, 0, p.z);
+    line.rotation.y=Math.random()*Math.PI;
+    line.receiveShadow=true;
+    deco.add(line);
+  }
+
+  // Steine am Rand (nur Optik)
+  const rocks = new THREE.Group(); rocks.position.y = 0; scene.add(rocks);
+  for(let i=0;i<28;i++){
+    const a = (i/28)*Math.PI*2 + Math.random()*0.2;
+    const r = R_TOP - 4 + Math.random()*6;
+    const s = Math.random()*0.9 + 0.6;
+    const rock = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(s, 0),
+      new THREE.MeshStandardMaterial({ color: 0xd7e6ff, roughness: 0.95, metalness: 0.05 })
+    );
+    rock.position.set(Math.cos(a)*r, 0, Math.sin(a)*r);
+    rock.rotation.y = Math.random()*Math.PI*2;
+    rock.castShadow = rock.receiveShadow = true;
+    rocks.add(rock);
+    // -> Kollision gewünscht? bakeMeshToCollision(rock);
+  }
+
+  // „Büsche“ als kleine Kegel (Optik)
+  const bushes = new THREE.Group(); bushes.position.y = 0; scene.add(bushes);
+  for(let i=0;i<18;i++){
+    const p = rndInDisk(R_TOP - 8);
+    const h = Math.random()*0.8 + 0.6;
+    const cone = new THREE.Mesh(
+      new THREE.ConeGeometry(0.5*h, 1.3*h, 8),
+      new THREE.MeshStandardMaterial({ color: 0xbfe8ff, roughness: 0.8, metalness: 0.1 })
+    );
+    cone.position.set(p.x, 0, p.z);
+    cone.rotation.y = Math.random()*Math.PI;
+    cone.castShadow = cone.receiveShadow = true;
+    bushes.add(cone);
+    // -> Kollision gewünscht? bakeMeshToCollision(cone);
   }
 }
 
 
 // ============================= World Build =================================
-function roughCheckpointAbove(res){
+const roughCheckpointAbove = (res) => {
   const c = res.group.position.clone();
   c.y = res.group.position.y + res.size.y + SETTINGS.playerHeight * 0.6 + 0.2;
   return c;
-}
+};
 
 async function makeITWorld(modelPack){
-  function select(cats, scaleHint){
+  const select = (cats, scaleHint=1) => {
     const cat = cats[0] || "generic";
-    const w = (TARGET_WIDTH_BY_CAT[cat] || TARGET_WIDTH_BY_CAT.generic) * (scaleHint||1);
-    let mdl=null; try{ mdl = pickModel(modelPack, cats); }catch(e){}
+    const w = (TARGET_WIDTH_BY_CAT[cat] || TARGET_WIDTH_BY_CAT.generic) * scaleHint;
+    const mdl = pickModel(modelPack, cats);
     if(!mdl){
       const base = new THREE.Vector3(w, 0.3, Math.max(1.2, w*0.6));
-      const size = new THREE.Vector3(
-        base.x * PLATFORM_SIZE_MULT,
-        KEEP_Y_SCALE ? base.y : base.y * PLATFORM_SIZE_MULT,
-        base.z * PLATFORM_SIZE_MULT
-      );
+      const size = new THREE.Vector3(base.x * PLATFORM_SIZE_MULT, KEEP_Y_SCALE ? base.y : base.y * PLATFORM_SIZE_MULT, base.z * PLATFORM_SIZE_MULT);
       return { model:null, size, targetW:w };
     }
     const est = scaledSizeFor(mdl, w);
-    const size = new THREE.Vector3(
-      est.x * PLATFORM_SIZE_MULT,
-      KEEP_Y_SCALE ? est.y : est.y * PLATFORM_SIZE_MULT,
-      est.z * PLATFORM_SIZE_MULT
-    );
+    const size = new THREE.Vector3(est.x * PLATFORM_SIZE_MULT, KEEP_Y_SCALE ? est.y : est.y * PLATFORM_SIZE_MULT, est.z * PLATFORM_SIZE_MULT);
     return { model:mdl, size, targetW:w };
-  }
-  function place(sel, pos, yaw){
-    if(sel.model) return placeModelPlatform(sel.model, { position:pos, yaw:yaw||0, targetWidth:sel.targetW });
-    return makeBoxPlatform(sel.size.x/PLATFORM_SIZE_MULT, sel.size.y/(KEEP_Y_SCALE?1:PLATFORM_SIZE_MULT), sel.size.z/PLATFORM_SIZE_MULT, pos, yaw||0);
-  }
+  };
+  const place = (sel, pos, yaw=0) => sel.model
+    ? placeModelPlatform(sel.model, { position:pos, yaw, targetWidth:sel.targetW })
+    : makeBoxPlatform(sel.size.x/PLATFORM_SIZE_MULT, sel.size.y/(KEEP_Y_SCALE?1:PLATFORM_SIZE_MULT), sel.size.z/PLATFORM_SIZE_MULT, pos, yaw);
 
   const startSel = select(["keyboard","desk","laptop","generic"], 1.25 * START_SIZE_MULT);
-  const startRes = place(startSel, new THREE.Vector3(0,0.2,0), 0);
+  const startRes = place(startSel, new THREE.Vector3(0,0.2,0));
   checkpoints.push({ pos: roughCheckpointAbove(startRes) });
 
   const stepsTotal=50, easySteps=5;
@@ -459,23 +458,59 @@ async function makeITWorld(modelPack){
 }
 
 
+// ============================= Platforms / Helpers =========================
+function placeModelPlatform(modelDef, { position=new THREE.Vector3(), yaw=0, targetWidth=2.5 } = {}){
+  const root = SkeletonUtils.clone(modelDef.template);
+  const baseXZ = Math.max(modelDef.baseSize.x, modelDef.baseSize.z);
+  const baseScale = baseXZ>1e-4 ? (targetWidth/baseXZ) : 1;
+  const sXZ = baseScale * PLATFORM_SIZE_MULT;
+  const sY  = KEEP_Y_SCALE ? baseScale : sXZ;
+  root.scale.set(sXZ, sY, sXZ);
+  root.updateMatrixWorld(true);
+
+  const tmp = computeBBox(root);
+  const group = new THREE.Group();
+  root.position.y -= tmp.box.min.y;
+  group.rotation.y = yaw; group.position.copy(position);
+  group.add(root); scene.add(group);
+
+  root.traverse(o=>{ if(o.isMesh) bakeMeshToCollision(o); });
+
+  const helper = new THREE.Box3Helper(new THREE.Box3().setFromObject(root), DEBUG_COLORS.bbox);
+  helper.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
+  debugStatic.add(helper);
+
+  return { group, size: tmp.size.clone() };
+}
+function makeBoxPlatform(w=4, h=0.3, d=2, pos=new THREE.Vector3(), yaw=0){
+  const W = w * PLATFORM_SIZE_MULT, D = d * PLATFORM_SIZE_MULT, H = KEEP_Y_SCALE ? h : h * PLATFORM_SIZE_MULT;
+  const group=new THREE.Group(); group.position.copy(pos); group.rotation.y=yaw;
+  const mesh=new THREE.Mesh(new THREE.BoxGeometry(W,H,D), new THREE.MeshStandardMaterial({ color:0xCFE6FF, roughness:0.9, metalness:0.05 }));
+  mesh.castShadow=mesh.receiveShadow=true; mesh.position.y=H*0.5; group.add(mesh); scene.add(group);
+  bakeMeshToCollision(mesh);
+
+  const helper = new THREE.Box3Helper(new THREE.Box3().setFromObject(mesh), DEBUG_COLORS.bbox);
+  helper.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
+  debugStatic.add(helper);
+
+  return { group, size:new THREE.Vector3(W,H,D) };
+}
+
+
 // ============================= Collision World ============================
 function buildWorldCollision(){
-  if(!_collisionGeoms.length){
-    console.warn("Keine Kollisionsgeometrie gesammelt!");
-    return;
-  }
+  if(!_collisionGeoms.length) return console.warn("Keine Kollisionsgeometrie gesammelt!");
   const merged = mergeGeometries(_collisionGeoms, false);
-  merged.computeBoundsTree(); // BVH
+  merged.computeBoundsTree();
   if(worldCollisionMesh){
     scene.remove(worldCollisionMesh);
-    if(worldCollisionMesh.geometry && worldCollisionMesh.geometry.dispose) worldCollisionMesh.geometry.dispose();
+    worldCollisionMesh.geometry?.dispose?.();
   }
   worldCollisionMesh = new THREE.Mesh(merged, new THREE.MeshBasicMaterial({ visible:false }));
   scene.add(worldCollisionMesh);
 
   if(DEBUG.SHOW_BVH){
-    if(worldBVHHelper) scene.remove(worldBVHHelper);
+    worldBVHHelper && scene.remove(worldBVHHelper);
     worldBVHHelper = new MeshBVHHelper(worldCollisionMesh, 12);
     worldBVHHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
     scene.add(worldBVHHelper);
@@ -487,21 +522,16 @@ function buildWorldCollision(){
 function raycastDownToSurface(origin, maxDist=60){
   if(!worldCollisionMesh) return null;
   const ray = new THREE.Raycaster(
-    new THREE.Vector3(origin.x, origin.y, origin.z).add(new THREE.Vector3(0, 5, 0)),
+    origin.clone().add(new THREE.Vector3(0,5,0)),
     new THREE.Vector3(0,-1,0),
     0,
     maxDist + 5
   );
   const hits = ray.intersectObject(worldCollisionMesh, true);
-  if(!hits.length) return null;
-
   for(const h of hits){
     if (!h.face) continue;
-    const nMat = new THREE.Matrix3().getNormalMatrix(h.object.matrixWorld);
-    const n = h.face.normal.clone().applyMatrix3(nMat).normalize();
-    if (n.y > 0.2) {
-      return { point: h.point.clone(), normal: n };
-    }
+    const n = h.face.normal.clone().applyMatrix3(new THREE.Matrix3().getNormalMatrix(h.object.matrixWorld)).normalize();
+    if (n.y > 0.2) return { point: h.point.clone(), normal: n };
   }
   return null;
 }
@@ -509,11 +539,9 @@ function alignCheckpointsToSurface(){
   for(const cp of checkpoints){
     const hit = raycastDownToSurface(cp.pos, 80);
     if(hit){
-      cp.pos.x = hit.point.x;
-      cp.pos.z = hit.point.z;
-      cp.pos.y = hit.point.y + (SETTINGS.playerHeight * 0.5) + Math.max(0.02, SKIN_WIDTH);
+      cp.pos.set(hit.point.x, hit.point.y + (SETTINGS.playerHeight * 0.5) + Math.max(0.02, SKIN_WIDTH), hit.point.z);
     } else {
-      cp.pos.y = Math.max(cp.pos.y, 0.0 + (SETTINGS.playerHeight*0.5) + 0.05);
+      cp.pos.y = Math.max(cp.pos.y, (SETTINGS.playerHeight*0.5) + 0.05);
     }
   }
 }
@@ -523,47 +551,19 @@ function alignCheckpointsToSurface(){
 const _u = new THREE.Vector3(), _v = new THREE.Vector3(), _w = new THREE.Vector3();
 const _c1 = new THREE.Vector3(), _c2 = new THREE.Vector3();
 function closestPointsSegmentSegment(p1,q1,p2,q2, out1, out2){
-  _u.subVectors(q1, p1);
-  _v.subVectors(q2, p2);
-  _w.subVectors(p1, p2);
+  _u.subVectors(q1, p1); _v.subVectors(q2, p2); _w.subVectors(p1, p2);
+  const a=_u.dot(_u), b=_u.dot(_v), c=_v.dot(_v), d=_u.dot(_w), e=_v.dot(_w);
+  const D = a*c - b*b, EPS = 1e-9;
+  let sc, sN, sD = D, tc, tN, tD = D;
 
-  const a = _u.dot(_u);
-  const b = _u.dot(_v);
-  const c = _v.dot(_v);
-  const d = _u.dot(_w);
-  const e = _v.dot(_w);
+  if (D < EPS){ sN = 0; sD = 1; tN = e; tD = c; }
+  else { sN = b*e - c*d; tN = a*e - b*d; if (sN < 0){ sN = 0; tN = e; tD = c; } else if (sN > sD){ sN = sD; tN = e + b; tD = c; } }
 
-  const D = a*c - b*b;
-  let sc, sN, sD = D;
-  let tc, tN, tD = D;
+  if (tN < 0){ tN = 0; if (-d < 0) sc = 0; else if (-d > a) sc = 1; else sc = -d / a; }
+  else if (tN > tD){ tN = tD; const tmp = (-d + b); if (tmp < 0) sc = 0; else if (tmp > a) sc = 1; else sc = tmp / a; }
+  else sc = (Math.abs(sD) < EPS ? 0 : sN / sD);
 
-  const EPS = 1e-9;
-
-  if (D < EPS){
-    sN = 0.0; sD = 1.0; tN = e; tD = c;
-  } else {
-    sN = (b*e - c*d);
-    tN = (a*e - b*d);
-    if (sN < 0){ sN = 0; tN = e; tD = c; }
-    else if (sN > sD){ sN = sD; tN = e + b; tD = c; }
-  }
-
-  if (tN < 0){
-    tN = 0;
-    if (-d < 0) sc = 0;
-    else if (-d > a) sc = 1;
-    else { sc = -d / a; }
-  } else if (tN > tD){
-    tN = tD;
-    const tmp = (-d + b);
-    if (tmp < 0) sc = 0;
-    else if (tmp > a) sc = 1;
-    else { sc = tmp / a; }
-  } else {
-    sc = (Math.abs(sD) < EPS ? 0 : sN / sD);
-  }
   tc = (Math.abs(tD) < EPS ? 0 : tN / tD);
-
   out1.copy(_u).multiplyScalar(sc).add(p1);
   out2.copy(_v).multiplyScalar(tc).add(p2);
   return out1.distanceTo(out2);
@@ -582,19 +582,14 @@ function segmentTriangleClosestPoints(segStart, segEnd, a, b, c, outTri, outSeg)
 
   const da = _nrm.dot(_tmpP.copy(segStart).sub(a));
   const db = _nrm.dot(_tmpQ.copy(segEnd).sub(a));
-
   const dir = _tmpQ.copy(segEnd).sub(segStart);
 
   let minDistSq = Infinity;
 
   if (da*db <= 0){
     const t = da / (da - db);
-    const p = _tmpP.copy(segStart).addScaledVector(dir, THREE.MathUtils.clamp(t,0,1));
-    if (_tri.containsPoint(p)){
-      outTri.copy(p);
-      outSeg.copy(p);
-      return 0.0;
-    }
+    const p = _tmpP.copy(segStart).addScaledVector(dir, clamp(t,0,1));
+    if (_tri.containsPoint(p)){ outTri.copy(p); outSeg.copy(p); return 0.0; }
   }
 
   const qa = _tri.closestPointToPoint(segStart, _tmpQ);
@@ -605,18 +600,10 @@ function segmentTriangleClosestPoints(segStart, segEnd, a, b, c, outTri, outSeg)
   dSq = segEnd.distanceToSquared(qb);
   if (dSq < minDistSq){ minDistSq = dSq; outTri.copy(qb); outSeg.copy(segEnd); }
 
-  let e1 = a, e2 = b;
-  dSq = closestPointsSegmentSegment(segStart, segEnd, e1, e2, _c1, _c2)**2;
-  if (dSq < minDistSq){ minDistSq = dSq; outSeg.copy(_c1); outTri.copy(_c2); }
-
-  e1 = b; e2 = c;
-  dSq = closestPointsSegmentSegment(segStart, segEnd, e1, e2, _c1, _c2)**2;
-  if (dSq < minDistSq){ minDistSq = dSq; outSeg.copy(_c1); outTri.copy(_c2); }
-
-  e1 = c; e2 = a;
-  dSq = closestPointsSegmentSegment(segStart, segEnd, e1, e2, _c1, _c2)**2;
-  if (dSq < minDistSq){ minDistSq = dSq; outSeg.copy(_c1); outTri.copy(_c2); }
-
+  for (const [e1,e2] of [[a,b],[b,c],[c,a]]){
+    dSq = closestPointsSegmentSegment(segStart, segEnd, e1, e2, _c1, _c2)**2;
+    if (dSq < minDistSq){ minDistSq = dSq; outSeg.copy(_c1); outTri.copy(_c2); }
+  }
   return Math.sqrt(minDistSq);
 }
 
@@ -633,8 +620,7 @@ function collideCapsuleWithWorld(capsule, velocity){
   const geom = worldCollisionMesh.geometry;
   _tempMatrix.copy(worldCollisionMesh.matrixWorld);
 
-  let collided = false;
-  let onGround = false;
+  let collided = false, onGround = false;
 
   const segLen = capsule.start.distanceTo(capsule.end);
   _capsuleCenter.copy(capsule.start).add(capsule.end).multiplyScalar(0.5);
@@ -642,7 +628,6 @@ function collideCapsuleWithWorld(capsule, velocity){
   _capsuleSphere.radius = capsule.radius + 0.5*segLen + SKIN_WIDTH;
 
   const rEff = SETTINGS.playerRadius - SKIN_WIDTH;
-
   const bvh = geom.boundsTree;
 
   for(let iter=0; iter<MAX_RESOLVE_ITERS; iter++){
@@ -657,7 +642,6 @@ function collideCapsuleWithWorld(capsule, velocity){
         const c = new THREE.Vector3().copy(tri.c).applyMatrix4(_tempMatrix);
 
         const dist = segmentTriangleClosestPoints(capsule.start, capsule.end, a, b, c, _pTri, _pSeg);
-
         if (dist < rEff){
           _tempNormal.copy(new THREE.Triangle(a,b,c).getNormal(new THREE.Vector3())).normalize();
 
@@ -675,22 +659,19 @@ function collideCapsuleWithWorld(capsule, velocity){
           contacts.push(_tempNormal.clone());
           if (_tempNormal.y > WALKABLE_NORMAL_Y) onGround = true;
 
-          collided = true;
-          any = true;
+          collided = true; any = true;
         }
         return false;
       }
     });
 
-    for (let i=0;i<contacts.length;i++){
-      const n = contacts[i];
+    for (const n of contacts){
       const vn = velocity.dot(n);
       if (vn < 0) velocity.addScaledVector(n, -vn);
     }
 
     if(!any) break;
   }
-
   return { collided, onGround };
 }
 function snapCapsuleToGround(capsule, maxDist=GROUND_SNAP_MAX){
@@ -700,30 +681,22 @@ function snapCapsuleToGround(capsule, maxDist=GROUND_SNAP_MAX){
   const halfSeg = capsule.end.clone().sub(capsule.start).length() * 0.5;
 
   const rayOrigin = center.clone(); rayOrigin.y += Math.min(0.3, halfSeg);
-  const rayDir = new THREE.Vector3(0,-1,0);
-  const ray = new THREE.Raycaster(rayOrigin, rayDir, 0, halfSeg + maxDist + capsule.radius + 0.05);
-
+  const ray = new THREE.Raycaster(rayOrigin, new THREE.Vector3(0,-1,0), 0, halfSeg + maxDist + capsule.radius + 0.05);
   const hits = ray.intersectObject(worldCollisionMesh, true);
-  if(!hits.length) return false;
-
-  for (let i=0;i<hits.length;i++){
-    const h = hits[i];
+  for (const h of hits){
     if (!h.face) continue;
+    const n = h.face.normal.clone().applyMatrix3(new THREE.Matrix3().getNormalMatrix(h.object.matrixWorld)).normalize();
+    if (n.y <= WALKABLE_NORMAL_Y) continue;
 
-    const nMat = new THREE.Matrix3().getNormalMatrix(h.object.matrixWorld);
-    const n = h.face.normal.clone().applyMatrix3(nMat).normalize();
-
-    if (n.y > WALKABLE_NORMAL_Y){
-      const bottomY = capsule.start.y;
-      const desiredBottomY = h.point.y + capsule.radius + SKIN_WIDTH;
-      const deltaY = desiredBottomY - bottomY;
-      if (deltaY >= -0.02 && deltaY <= (maxDist + 0.02)){
-        capsule.start.y += deltaY;
-        capsule.end.y   += deltaY;
-        return true;
-      }
-      break;
+    const bottomY = capsule.start.y;
+    const desiredBottomY = h.point.y + capsule.radius + SKIN_WIDTH;
+    const deltaY = desiredBottomY - bottomY;
+    if (deltaY >= -0.02 && deltaY <= (maxDist + 0.02)){
+      capsule.start.y += deltaY;
+      capsule.end.y   += deltaY;
+      return true;
     }
+    break;
   }
   return false;
 }
@@ -733,7 +706,7 @@ function snapCapsuleToGround(capsule, maxDist=GROUND_SNAP_MAX){
 class PlayerController{
   constructor(){
     this.group=new THREE.Group(); scene.add(this.group);
-    this.velocity=new THREE.Vector3(0,0,0);
+    this.velocity=new THREE.Vector3();
     this.radius=SETTINGS.playerRadius; this.height=SETTINGS.playerHeight;
 
     const start = new THREE.Vector3(0, this.radius, 0);
@@ -758,75 +731,68 @@ class PlayerController{
     this.maxAirJumps = SETTINGS.maxAirJumps;
     this.airJumpsLeft = this.maxAirJumps;
 
+    // Coyote + Jump-Buffer
+    this.coyote = 0;
+    this.jumpBuf = 0;
+
     this._loadOrMakeCapsule();
   }
+
+  queueJump(){ this.jumpBuf = SETTINGS.jumpBuffer; }
 
   _findClip(clips, names){
     const norm = s => s.toLowerCase().replace(/[\s_]+/g,"");
     for(const wantName of names){
       const want = norm(wantName);
       for(const c of (clips||[])){
-        const have = norm(c.name||"");
-        if(have.indexOf(want)!==-1) return c;
+        if(norm(c.name||"").includes(want)) return c;
       }
     }
     return null;
   }
 
-  _setupAnimations(gltfAnimations, root){
-    if(!gltfAnimations || !gltfAnimations.length) return;
-
+  _setupAnimations(clips, root){
+    if(!clips?.length) return;
     this.mixer = new THREE.AnimationMixer(root);
-    const idleClip  = this._findClip(gltfAnimations, ["idle","a_idle","idle01","idle_01","rest","stand"]);
-    const walkClip  = this._findClip(gltfAnimations, ["walk","move","locomotion"]);
-    const runClip   = this._findClip(gltfAnimations, ["run","jog"]);
-    const jumpClip  = this._findClip(gltfAnimations, ["jump_start","jumpstart","jump","takeoff"]);
-    const fallClip  = this._findClip(gltfAnimations, ["fall","falling","air","jump_loop","in_air"]);
-    const landClip  = this._findClip(gltfAnimations, ["land","landing","jump_end","jumpend"]);
 
-    if(idleClip){  this.actions.idle  = this.mixer.clipAction(idleClip);  this.actions.idle.setLoop(THREE.LoopRepeat); }
-    if(walkClip){  this.actions.walk  = this.mixer.clipAction(walkClip);  this.actions.walk.setLoop(THREE.LoopRepeat); }
-    if(runClip){   this.actions.run   = this.mixer.clipAction(runClip);   this.actions.run.setLoop(THREE.LoopRepeat); }
-    if(jumpClip){  this.actions.jump  = this.mixer.clipAction(jumpClip);  this.actions.jump.setLoop(THREE.LoopOnce); this.actions.jump.clampWhenFinished = true; }
-    if(fallClip){  this.actions.fall  = this.mixer.clipAction(fallClip);  this.actions.fall.setLoop(THREE.LoopRepeat); }
-    if(landClip){  this.actions.land  = this.mixer.clipAction(landClip);  this.actions.land.setLoop(THREE.LoopOnce); this.actions.land.clampWhenFinished = true; }
+    const idleClip  = this._findClip(clips, ["idle","a_idle","idle01","idle_01","rest","stand"]);
+    const walkClip  = this._findClip(clips, ["walk","move","locomotion"]);
+    const runClip   = this._findClip(clips, ["run","jog"]);
+    const jumpClip  = this._findClip(clips, ["jump_start","jumpstart","jump","takeoff"]);
+    const fallClip  = this._findClip(clips, ["fall","falling","air","jump_loop","in_air"]);
+    const landClip  = this._findClip(clips, ["land","landing","jump_end","jumpend"]);
 
-    this.anim.idle      = this.actions.idle || this.actions.walk || this.actions.run;
-    this.anim.move      = this.actions.run  || this.actions.walk || this.actions.idle;
-    this.anim.jumpStart = this.actions.jump || null;
-    this.anim.fall      = this.actions.fall || this.actions.jump || this.anim.move;
-    this.anim.land      = this.actions.land || null;
+    const A = this.actions;
+    if(idleClip) A.idle = this.mixer.clipAction(idleClip).setLoop(THREE.LoopRepeat);
+    if(walkClip) A.walk = this.mixer.clipAction(walkClip).setLoop(THREE.LoopRepeat);
+    if(runClip)  A.run  = this.mixer.clipAction(runClip ).setLoop(THREE.LoopRepeat);
+    if(jumpClip){ A.jump = this.mixer.clipAction(jumpClip); A.jump.setLoop(THREE.LoopOnce); A.jump.clampWhenFinished = true; }
+    if(fallClip) A.fall = this.mixer.clipAction(fallClip).setLoop(THREE.LoopRepeat);
+    if(landClip){ A.land = this.mixer.clipAction(landClip); A.land.setLoop(THREE.LoopOnce); A.land.clampWhenFinished = true; }
+
+    this.anim.idle      = A.idle || A.walk || A.run;
+    this.anim.move      = A.run  || A.walk || A.idle;
+    this.anim.jumpStart = A.jump || null;
+    this.anim.fall      = A.fall || A.jump || this.anim.move;
+    this.anim.land      = A.land || null;
 
     this._playAction(this.anim.idle, 0.0);
   }
 
   _playAction(action, fade=0.2){
-    if(!action) return;
-    if(this.anim.current === action) return;
+    if(!action || this.anim.current === action) return;
     action.reset().play();
-    if(this.anim.current){
-      this.anim.current.crossFadeTo(action, fade, false);
-    }
+    if(this.anim.current) this.anim.current.crossFadeTo(action, fade, false);
     this.anim.current = action;
   }
 
   _playOneShot(action, fade=0.12, onDone){
     if(!action){ onDone && onDone(); return; }
-    action.reset();
-    action.setLoop(THREE.LoopOnce);
-    action.clampWhenFinished = true;
-    action.play();
-    if(this.anim.current && this.anim.current!==action){
-      this.anim.current.crossFadeTo(action, fade, false);
-    }
+    action.reset().setLoop(THREE.LoopOnce); action.clampWhenFinished = true; action.play();
+    if(this.anim.current && this.anim.current!==action) this.anim.current.crossFadeTo(action, fade, false);
     this.anim.current = action;
 
-    const handler = (e)=>{
-      if(e.action===action){
-        this.mixer.removeEventListener("finished", handler);
-        onDone && onDone();
-      }
-    };
+    const handler = (e)=>{ if(e.action===action){ this.mixer.removeEventListener("finished", handler); onDone && onDone(); } };
     this.mixer.addEventListener("finished", handler);
   }
 
@@ -837,14 +803,13 @@ class PlayerController{
     ]);
     try{
       const { g } = await loadGLBWithFallback(candidates);
-      const root = g.scene || (g.scenes && g.scenes[0]);
+      const root = g.scene || g.scenes?.[0];
       root.traverse(o=>{
-        if(o.isMesh){
-          o.castShadow=true; o.receiveShadow=true;
-          if(o.material){
-            o.material.side=THREE.FrontSide;
-            if(o.material.transparent && o.material.opacity===0){ o.material.opacity=1; o.material.transparent=false; }
-          }
+        if(!o.isMesh) return;
+        o.castShadow=o.receiveShadow=true;
+        if(o.material){
+          o.material.side=THREE.FrontSide;
+          if(o.material.transparent && o.material.opacity===0){ o.material.opacity=1; o.material.transparent=false; }
         }
       });
 
@@ -865,12 +830,12 @@ class PlayerController{
         new THREE.CapsuleGeometry(this.radius, Math.max(0.1,this.height-2*this.radius),8,16),
         new THREE.MeshStandardMaterial({ color:0x22d3ee, roughness:0.5, metalness:0.1 })
       );
-      body.castShadow=true; body.receiveShadow=true;
+      body.castShadow=body.receiveShadow=true;
       this.group.add(body);
       setStatus("Ready (Fallback-Char). Prüfe Pfad/Kompression!");
     }
 
-    const cp = checkpoints.length ? checkpoints[0].pos : new THREE.Vector3(0,1.4,0);
+    const cp = checkpoints[0]?.pos || new THREE.Vector3(0,1.4,0);
     this.teleportTo(cp);
   }
 
@@ -882,9 +847,11 @@ class PlayerController{
     this.group.position.copy(center);
     this.capsuleHelper.position.copy(center);
     this.velocity.set(0,0,0);
-    this.onGround=false; this.wasOnGround=false;
+    this.onGround=this.wasOnGround=false;
     this._landLock = 0;
     this.airJumpsLeft = this.maxAirJumps;
+    this.coyote = 0;
+    this.jumpBuf = 0;
 
     snapCapsuleToGround(this.capsule, 0.5);
     const center2 = new THREE.Vector3().addVectors(this.capsule.start, this.capsule.end).multiplyScalar(0.5);
@@ -895,51 +862,29 @@ class PlayerController{
   get position(){ return this.group.position; }
 
   update(dt, camYaw){
-    const forward  = (keys.has("w") || keys.has("arrowup"));
-    const backward = (keys.has("s") || keys.has("arrowdown"));
-    const left     = (keys.has("a") || keys.has("arrowleft"));
-    const right    = (keys.has("d") || keys.has("arrowright"));
-    const sprint   = keys.has("shift");
+    // Eingabe in Welt drehen
+    const f = (keys.has("w") || keys.has("arrowup"));
+    const b = (keys.has("s") || keys.has("arrowdown"));
+    const l = (keys.has("a") || keys.has("arrowleft"));
+    const r = (keys.has("d") || keys.has("arrowright"));
+    const sprint = keys.has("shift");
 
-    let wish=new THREE.Vector3();
-    if(forward)  wish.z -= 1;
-    if(backward) wish.z += 1;
-    if(left)     wish.x -= 1;
-    if(right)    wish.x += 1;
-    if(wish.lengthSq()>0) wish.normalize();
-    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), camYaw);
-    wish.applyQuaternion(q);
+    const wish=new THREE.Vector3((r?1:0)-(l?1:0),0,(b?1:0)-(f?1:0));
+    if(wish.lengthSq()>0) wish.normalize().applyQuaternion(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), camYaw));
 
     const speedTarget=SETTINGS.moveSpeed*(sprint?SETTINGS.sprintMult:1);
-    const desired=new THREE.Vector3(wish.x*speedTarget, this.velocity.y, wish.z*speedTarget);
+    const desiredX = wish.x*speedTarget, desiredZ = wish.z*speedTarget;
 
     const accel=this.onGround?22:10*SETTINGS.airControl;
-    this.velocity.x=THREE.MathUtils.damp(this.velocity.x, desired.x, accel, dt);
-    this.velocity.z=THREE.MathUtils.damp(this.velocity.z, desired.z, accel, dt);
+    this.velocity.x=damp(this.velocity.x, desiredX, accel, dt);
+    this.velocity.z=damp(this.velocity.z, desiredZ, accel, dt);
 
-    this.velocity.y -= SETTINGS.gravity*dt;
-    if(this.velocity.y < TERMINAL_FALL_SPEED) this.velocity.y = TERMINAL_FALL_SPEED;
+    this.velocity.y = Math.max(this.velocity.y - SETTINGS.gravity*dt, TERMINAL_FALL_SPEED);
 
-    if (_pendingJump) {
-      if (this.onGround) {
-        this.velocity.y = SETTINGS.jumpSpeed;
-        this._justJumped = true;
-        this.airJumpsLeft = this.maxAirJumps;
-      } else if (this.airJumpsLeft > 0) {
-        const keepUp = Math.max(this.velocity.y, 0);
-        this.velocity.y = Math.max(keepUp, SETTINGS.jumpSpeed * SETTINGS.doubleJumpMult);
-        this._justJumped = true;
-        this.airJumpsLeft -= 1;
-      }
-    }
-    _pendingJump = false;
-
+    // Substeps für robuste Kollision
     const dispLen = this.velocity.length() * dt;
     const stepsBySpeed = Math.max(1, Math.ceil(dispLen / Math.max(0.001, MAX_DISP_PER_SUBSTEP)));
-    const absVy = Math.abs(this.velocity.y);
-    const estPen = absVy*dt;
-    const maxPenPerStep = Math.max(SUBSTEP_PEN_TARGET, 0.075);
-    const stepsByPen = Math.max(1, Math.ceil(estPen / maxPenPerStep));
+    const stepsByPen   = Math.max(1, Math.ceil(Math.abs(this.velocity.y)*dt / Math.max(SUBSTEP_PEN_TARGET, 0.075)));
     const steps = Math.max(stepsBySpeed, stepsByPen);
     const dtS = dt / steps;
 
@@ -948,7 +893,6 @@ class PlayerController{
       const delta = this.velocity.clone().multiplyScalar(dtS);
       this.capsule.start.add(delta);
       this.capsule.end.add(delta);
-
       const res = collideCapsuleWithWorld(this.capsule, this.velocity);
       onGroundAccum = onGroundAccum || res.onGround;
     }
@@ -956,6 +900,7 @@ class PlayerController{
     this.wasOnGround = this.onGround;
     this.onGround = onGroundAccum;
 
+    // Snap auf Boden, wenn knapp drüber
     if (!this.onGround && this.velocity.y <= 1.0){
       if (snapCapsuleToGround(this.capsule, GROUND_SNAP_MAX)){
         this.onGround = true;
@@ -963,22 +908,44 @@ class PlayerController{
       }
     }
 
+    // Coyote/Buffer Timer + Sprung
+    this.coyote  = this.onGround ? SETTINGS.coyoteTime : Math.max(0, this.coyote - dt);
+    this.jumpBuf = Math.max(0, this.jumpBuf - dt);
+
+    if (this.jumpBuf > 0) {
+      if (this.onGround || this.coyote > 0) {
+        this.velocity.y = SETTINGS.jumpSpeed;
+        this._justJumped = true;
+        this.airJumpsLeft = this.maxAirJumps;
+        this.jumpBuf = 0; this.coyote = 0;
+      } else if (this.airJumpsLeft > 0) {
+        const keepUp = Math.max(this.velocity.y, 0);
+        this.velocity.y = Math.max(keepUp, SETTINGS.jumpSpeed * SETTINGS.doubleJumpMult);
+        this._justJumped = true;
+        this.airJumpsLeft -= 1;
+        this.jumpBuf = 0;
+      }
+    }
+
+    // Position/Helpers updaten
     const center = new THREE.Vector3().addVectors(this.capsule.start, this.capsule.end).multiplyScalar(0.5);
     this.group.position.copy(center);
     this.capsuleHelper.position.copy(center);
     this.capsuleHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_CAPSULE;
 
+    // Blickrichtung zum Movement
     if(wish.lengthSq()>1e-4){
       const targetYaw=Math.atan2(wish.x,wish.z);
-      this.heading=THREE.MathUtils.damp(this.heading,targetYaw,12,dt);
+      this.heading=damp(this.heading,targetYaw,12,dt);
     }
     this.group.rotation.y=this.heading;
 
+    // Animationen
     if(this.mixer){
       const hSpeed = Math.hypot(this.velocity.x, this.velocity.z);
       if(this.anim.move){
-        const base = SETTINGS.moveSpeed*1.0;
-        this.anim.move.timeScale = THREE.MathUtils.clamp(hSpeed / Math.max(0.01, base), 0.75, 1.5);
+        const base = Math.max(0.01, SETTINGS.moveSpeed);
+        this.anim.move.timeScale = clamp(hSpeed / base, 0.75, 1.5);
       }
 
       if(!this.wasOnGround && this.onGround){
@@ -999,32 +966,25 @@ class PlayerController{
           this._playOneShot(this.anim.jumpStart, 0.08, ()=>{
             if(!this.onGround && this.anim.fall) this._playAction(this.anim.fall, 0.06);
           });
-        } else {
-          if(this.anim.fall) this._playAction(this.anim.fall, 0.06);
+        } else if(this.anim.fall){
+          this._playAction(this.anim.fall, 0.06);
         }
-      } else {
-        if(this.onGround){
-          if(this._landLock<=0){
-            if(hSpeed>0.6 && this.anim.move) this._playAction(this.anim.move, 0.12);
-            else if(this.anim.idle) this._playAction(this.anim.idle, 0.15);
-          }
-        } else {
-          if(this.anim.fall) this._playAction(this.anim.fall, 0.06);
-        }
+      } else if(this.onGround && this._landLock<=0){
+        if(hSpeed>0.6 && this.anim.move) this._playAction(this.anim.move, 0.12);
+        else if(this.anim.idle) this._playAction(this.anim.idle, 0.15);
       }
 
       if(this._landLock>0) this._landLock = Math.max(0, this._landLock - dt);
       this.mixer.update(dt);
     }
 
-    this._justJumped = false;
-
     if(this.group.position.y < SETTINGS.fallY) this.respawn();
+    this._justJumped = false;
   }
 
   respawn(toIndex=activeCheckpointIndex){
-    const i = Math.max(0, Math.min(checkpoints.length-1, toIndex));
-    const pos = checkpoints[i] ? checkpoints[i].pos : new THREE.Vector3(0,1.4,0);
+    const i = clamp(toIndex, 0, checkpoints.length-1);
+    const pos = checkpoints[i]?.pos || new THREE.Vector3(0,1.4,0);
     this.teleportTo(pos);
     setStatus(`Respawn bei Checkpoint ${i+1}/${checkpoints.length} erreicht`);
   }
@@ -1033,39 +993,36 @@ class PlayerController{
 
 // ============================= Camera & Input ==============================
 let camYaw=0, camPitch=0.12, isDragging=false, lastX=0, lastY=0;
-canvas.addEventListener("mousedown",e=>{ isDragging=true; lastX=e.clientX; lastY=e.clientY; });
-window.addEventListener("mouseup",()=>{ isDragging=false; });
-// NACHHER (mit Maus-Empfindlichkeit)
+
+UI.canvas.addEventListener("mousedown", e => { isDragging=true; lastX=e.clientX; lastY=e.clientY; });
+window.addEventListener("mouseup", () => { isDragging=false; });
+
 window.addEventListener("mousemove", e => {
   if (!isDragging) return;
   const dx = e.clientX - lastX, dy = e.clientY - lastY; lastX = e.clientX; lastY = e.clientY;
-
-  // nutze den Slider-Wert (INPUT.mouseSens), Standard 1.0
   const base = 0.003 * (INPUT?.mouseSens ?? 1.0);
-
-  camYaw  -= dx * base;
-  camPitch-= dy * base;
-  camPitch = THREE.MathUtils.clamp(camPitch, -1.2, 1.2);
+  camYaw   -= dx * base;
+  camPitch -= dy * base;
+  camPitch  = clamp(camPitch, -1.2, 1.2);
 });
 
-window.addEventListener("wheel",e=>{
-  SETTINGS.camDistance = THREE.MathUtils.clamp(SETTINGS.camDistance + Math.sign(e.deltaY)*0.6, 3.2, 10.5);
+window.addEventListener("wheel", e => {
+  SETTINGS.camDistance = clamp(SETTINGS.camDistance + Math.sign(e.deltaY)*0.6, 3.2, 10.5);
 },{ passive:true });
 
-let _pendingJump=false;
-window.addEventListener("keydown",e=>{
-  const k=e.key.toLowerCase(); keys.add(k);
-  if(k===" "||k==="space") _pendingJump=true;
+window.addEventListener("keydown", e=>{
+  const k=e.key.toLowerCase();
+  keys.add(k);
+  if(k===" "||k==="space") player?.queueJump();
   if(k==="r") player?.respawn();
-
-  if(k==="f1"){ DEBUG.ENABLED=!DEBUG.ENABLED; }
-  if(k==="f2"){ DEBUG.SHOW_STATIC=!DEBUG.SHOW_STATIC; }
-  if(k==="f3"){ DEBUG.SHOW_BVH=!DEBUG.SHOW_BVH; if(worldBVHHelper) worldBVHHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC && DEBUG.SHOW_BVH; }
-  if(k==="f4"){ DEBUG.SHOW_CAPSULE=!DEBUG.SHOW_CAPSULE; }
+  if(k==="f1"){ DEBUG.ENABLED     = !DEBUG.ENABLED; }
+  if(k==="f2"){ DEBUG.SHOW_STATIC = !DEBUG.SHOW_STATIC; }
+  if(k==="f3"){ DEBUG.SHOW_BVH    = !DEBUG.SHOW_BVH; worldBVHHelper && (worldBVHHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC && DEBUG.SHOW_BVH); }
+  if(k==="f4"){ DEBUG.SHOW_CAPSULE= !DEBUG.SHOW_CAPSULE; }
 });
-window.addEventListener("keyup",e=>{ keys.delete(e.key.toLowerCase()); });
+window.addEventListener("keyup", e=> keys.delete(e.key.toLowerCase()));
 
-window.addEventListener("resize",()=>{
+window.addEventListener("resize", ()=>{
   camera.aspect=window.innerWidth/window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -1076,17 +1033,13 @@ window.addEventListener("resize",()=>{
 let gameStarted = false;
 
 async function startGame(){
-  if (gameStarted) { // doppelklick-schutz
-    setScreen("game"); setPaused(false);
-    return;
-  }
+  if (gameStarted){ setScreen("game"); setPaused(false); return; }
   gameStarted = true;
 
-  setupLoaders();              // LoadingManager + Loader
+  setupLoaders();
   setScreen("loading");
   setStatus("Initialisiere…");
 
-  // Welt aufbauen (synchron + geladen)
   makeGround();
   setStatus("Lade Plattform-Assets…");
 
@@ -1099,19 +1052,17 @@ async function startGame(){
   setStatus("Lade Charakter…");
   player = new PlayerController();
 
-  // kleiner UI-Delay für Ladegefühl
-  setTimeout(()=>{ setScreen("game"); }, 150);
-
-  // Render-Loop starten
+  setTimeout(()=> setScreen("game"), 150);
   runLoop();
 }
 
 
 // ============================= Loop / Update ===============================
 const camTarget=new THREE.Vector3();
+
 function updateCheckpoint(){
   if(!player) return;
-  let closest=0, best=Infinity;
+  let closest=activeCheckpointIndex, best=Infinity;
   for(let i=0;i<checkpoints.length;i++){
     const d=checkpoints[i].pos.distanceToSquared(player.position);
     if(d<best){ best=d; closest=i; }
@@ -1127,10 +1078,11 @@ function updateCamera(dt){
   const offset=new THREE.Vector3().setFromSpherical(sph);
   const desired=player.position.clone().add(new THREE.Vector3(0,SETTINGS.camHeight,0)).add(offset);
   camera.position.lerp(desired, 1 - Math.pow(1-SETTINGS.camLag, dt*60));
-  camTarget.copy(player.position).add(new THREE.Vector3(0,1.2,0)); camera.lookAt(camTarget);
+  camTarget.copy(player.position).add(new THREE.Vector3(0,1.2,0));
+  camera.lookAt(camTarget);
 }
 let tAccum=0;
-function updateLighting(dt){ tAccum += dt*0.1; sun.position.set(Math.cos(tAccum)*10, 10+Math.sin(tAccum)*2, 8); }
+const updateLighting = (dt) => { tAccum += dt*0.1; sun.position.set(Math.cos(tAccum)*10, 10+Math.sin(tAccum)*2, 8); };
 
 function runLoop(){
   renderer.setAnimationLoop(()=>{
@@ -1139,12 +1091,9 @@ function runLoop(){
     if (!isPaused && player){
       player.update(dt, camYaw);
       updateCheckpoint();
-      updateCamera(dt);
       updateLighting(dt);
-    } else {
-      // auch pausiert die Kamera zumindest verfolgen
-      updateCamera(dt);
     }
+    updateCamera(dt);
 
     debugStatic.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
     if(worldBVHHelper) worldBVHHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC && DEBUG.SHOW_BVH;
