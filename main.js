@@ -44,6 +44,31 @@ const btnQuit    = $("#btn-quit");
 const loadingBar  = $("#loading-bar");
 const loadingText = $("#loading-text");
 
+// ---- Benutzer-Optionen (persistiert) ----
+const INPUT = {
+  mouseSens: parseFloat(localStorage.getItem("onlyup.mouseSens")) || 1.0
+};
+
+// UI-Hooks für Maus-Sens
+const sensSlider = document.querySelector("#opt-sens");
+const sensVal    = document.querySelector("#opt-sens-val");
+
+// Initial anzeigen + speichern bei Änderung
+if (sensSlider) {
+  sensSlider.value = String(INPUT.mouseSens);
+  if (sensVal) sensVal.textContent = `${Number(INPUT.mouseSens).toFixed(2)}×`;
+
+  const applySens = () => {
+    INPUT.mouseSens = parseFloat(sensSlider.value) || 1.0;
+    localStorage.setItem("onlyup.mouseSens", String(INPUT.mouseSens));
+    if (sensVal) sensVal.textContent = `${INPUT.mouseSens.toFixed(2)}×`;
+  };
+
+  sensSlider.addEventListener("input", applySens);
+  sensSlider.addEventListener("change", applySens);
+}
+
+
 if (!body.hasAttribute("data-screen")) body.setAttribute("data-screen", "menu");
 
 function setScreen(name){
@@ -1010,11 +1035,19 @@ class PlayerController{
 let camYaw=0, camPitch=0.12, isDragging=false, lastX=0, lastY=0;
 canvas.addEventListener("mousedown",e=>{ isDragging=true; lastX=e.clientX; lastY=e.clientY; });
 window.addEventListener("mouseup",()=>{ isDragging=false; });
-window.addEventListener("mousemove",e=>{
-  if(!isDragging) return;
-  const dx=e.clientX-lastX, dy=e.clientY-lastY; lastX=e.clientX; lastY=e.clientY;
-  camYaw-=dx*0.003; camPitch-=dy*0.003; camPitch=THREE.MathUtils.clamp(camPitch,-1.2,1.2);
+// NACHHER (mit Maus-Empfindlichkeit)
+window.addEventListener("mousemove", e => {
+  if (!isDragging) return;
+  const dx = e.clientX - lastX, dy = e.clientY - lastY; lastX = e.clientX; lastY = e.clientY;
+
+  // nutze den Slider-Wert (INPUT.mouseSens), Standard 1.0
+  const base = 0.003 * (INPUT?.mouseSens ?? 1.0);
+
+  camYaw  -= dx * base;
+  camPitch-= dy * base;
+  camPitch = THREE.MathUtils.clamp(camPitch, -1.2, 1.2);
 });
+
 window.addEventListener("wheel",e=>{
   SETTINGS.camDistance = THREE.MathUtils.clamp(SETTINGS.camDistance + Math.sign(e.deltaY)*0.6, 3.2, 10.5);
 },{ passive:true });

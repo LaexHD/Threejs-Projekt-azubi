@@ -27,22 +27,28 @@
 
         <div id="menu-sub" class="menu-sub hidden" role="region" aria-live="polite">
           <!-- Inhalte werden per JS umgeschaltet -->
-          <div data-panel="options" class="panel-content">
-            <h2>Optionen</h2>
-            <label class="field">
-              <span>Grafikqualität</span>
-              <select id="opt-quality">
-                <option value="high" selected>Hoch</option>
-                <option value="medium">Mittel</option>
-                <option value="low">Niedrig</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>Musiklautstärke</span>
-              <input id="opt-volume" type="range" min="0" max="1" step="0.01" value="0.7"/>
-            </label>
-            <button id="btn-back-1" class="btn btn-ghost">← Zurück</button>
-          </div>
+         <div data-panel="options" class="panel-content">
+  <h2>Optionen</h2>
+
+  <label class="field">
+    <span>Grafikqualität</span>
+    <select id="opt-quality">
+      <option value="high" selected>Hoch</option>
+      <option value="medium">Mittel</option>
+      <option value="low">Niedrig</option>
+    </select>
+  </label>
+
+  <!-- NEU: Maus-Empfindlichkeit -->
+  <label class="field">
+    <span>Maus-Empfindlichkeit</span>
+    <input id="opt-sens" type="range" min="0.2" max="3" step="0.05" value="1" />
+  </label>
+  <p class="hint small">Aktuell: <span id="opt-sens-val">1.00×</span></p>
+
+  <button id="btn-back-1" class="btn btn-ghost">← Zurück</button>
+</div>
+
 
           <!-- im Menü, innerhalb #menu-sub -->
 <div data-panel="credits" class="panel-content">
