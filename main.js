@@ -861,126 +861,138 @@ class PlayerController{
 
   get position(){ return this.group.position; }
 
-  update(dt, camYaw){
-    // Eingabe in Welt drehen
-    const f = (keys.has("w") || keys.has("arrowup"));
-    const b = (keys.has("s") || keys.has("arrowdown"));
-    const l = (keys.has("a") || keys.has("arrowleft"));
-    const r = (keys.has("d") || keys.has("arrowright"));
-    const sprint = keys.has("shift");
+update(dt, camYaw){
+  // Eingabe → Bewegungswunsch (in Kamerarahmen)
+  const f = (keys.has("w") || keys.has("arrowup"));
+  const b = (keys.has("s") || keys.has("arrowdown"));
+  const l = (keys.has("a") || keys.has("arrowleft"));
+  const r = (keys.has("d") || keys.has("arrowright"));
+  const sprint = keys.has("shift");
 
-    const wish=new THREE.Vector3((r?1:0)-(l?1:0),0,(b?1:0)-(f?1:0));
-    if(wish.lengthSq()>0) wish.normalize().applyQuaternion(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), camYaw));
-
-    const speedTarget=SETTINGS.moveSpeed*(sprint?SETTINGS.sprintMult:1);
-    const desiredX = wish.x*speedTarget, desiredZ = wish.z*speedTarget;
-
-    const accel=this.onGround?22:10*SETTINGS.airControl;
-    this.velocity.x=damp(this.velocity.x, desiredX, accel, dt);
-    this.velocity.z=damp(this.velocity.z, desiredZ, accel, dt);
-
-    this.velocity.y = Math.max(this.velocity.y - SETTINGS.gravity*dt, TERMINAL_FALL_SPEED);
-
-    // Substeps für robuste Kollision
-    const dispLen = this.velocity.length() * dt;
-    const stepsBySpeed = Math.max(1, Math.ceil(dispLen / Math.max(0.001, MAX_DISP_PER_SUBSTEP)));
-    const stepsByPen   = Math.max(1, Math.ceil(Math.abs(this.velocity.y)*dt / Math.max(SUBSTEP_PEN_TARGET, 0.075)));
-    const steps = Math.max(stepsBySpeed, stepsByPen);
-    const dtS = dt / steps;
-
-    let onGroundAccum = false;
-    for(let s=0; s<steps; s++){
-      const delta = this.velocity.clone().multiplyScalar(dtS);
-      this.capsule.start.add(delta);
-      this.capsule.end.add(delta);
-      const res = collideCapsuleWithWorld(this.capsule, this.velocity);
-      onGroundAccum = onGroundAccum || res.onGround;
-    }
-
-    this.wasOnGround = this.onGround;
-    this.onGround = onGroundAccum;
-
-    // Snap auf Boden, wenn knapp drüber
-    if (!this.onGround && this.velocity.y <= 1.0){
-      if (snapCapsuleToGround(this.capsule, GROUND_SNAP_MAX)){
-        this.onGround = true;
-        if (this.velocity.y < 0) this.velocity.y = 0;
-      }
-    }
-
-    // Coyote/Buffer Timer + Sprung
-    this.coyote  = this.onGround ? SETTINGS.coyoteTime : Math.max(0, this.coyote - dt);
-    this.jumpBuf = Math.max(0, this.jumpBuf - dt);
-
-    if (this.jumpBuf > 0) {
-      if (this.onGround || this.coyote > 0) {
-        this.velocity.y = SETTINGS.jumpSpeed;
-        this._justJumped = true;
-        this.airJumpsLeft = this.maxAirJumps;
-        this.jumpBuf = 0; this.coyote = 0;
-      } else if (this.airJumpsLeft > 0) {
-        const keepUp = Math.max(this.velocity.y, 0);
-        this.velocity.y = Math.max(keepUp, SETTINGS.jumpSpeed * SETTINGS.doubleJumpMult);
-        this._justJumped = true;
-        this.airJumpsLeft -= 1;
-        this.jumpBuf = 0;
-      }
-    }
-
-    // Position/Helpers updaten
-    const center = new THREE.Vector3().addVectors(this.capsule.start, this.capsule.end).multiplyScalar(0.5);
-    this.group.position.copy(center);
-    this.capsuleHelper.position.copy(center);
-    this.capsuleHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_CAPSULE;
-
-    // Blickrichtung zum Movement
-    if(wish.lengthSq()>1e-4){
-      const targetYaw=Math.atan2(wish.x,wish.z);
-      this.heading=damp(this.heading,targetYaw,12,dt);
-    }
-    this.group.rotation.y=this.heading;
-
-    // Animationen
-    if(this.mixer){
-      const hSpeed = Math.hypot(this.velocity.x, this.velocity.z);
-      if(this.anim.move){
-        const base = Math.max(0.01, SETTINGS.moveSpeed);
-        this.anim.move.timeScale = clamp(hSpeed / base, 0.75, 1.5);
-      }
-
-      if(!this.wasOnGround && this.onGround){
-        this.airJumpsLeft = this.maxAirJumps;
-        this._landLock = 0.25;
-        if(this.anim.land){
-          this._playOneShot(this.anim.land, 0.08, ()=>{
-            this._landLock = 0;
-            if(hSpeed>0.5 && this.anim.move) this._playAction(this.anim.move, 0.12);
-            else if(this.anim.idle) this._playAction(this.anim.idle, 0.12);
-          });
-        } else {
-          if(hSpeed>0.5 && this.anim.move) this._playAction(this.anim.move, 0.12);
-          else if(this.anim.idle) this._playAction(this.anim.idle, 0.12);
-        }
-      } else if(this.wasOnGround && !this.onGround){
-        if(this._justJumped && this.anim.jumpStart){
-          this._playOneShot(this.anim.jumpStart, 0.08, ()=>{
-            if(!this.onGround && this.anim.fall) this._playAction(this.anim.fall, 0.06);
-          });
-        } else if(this.anim.fall){
-          this._playAction(this.anim.fall, 0.06);
-        }
-      } else if(this.onGround && this._landLock<=0){
-        if(hSpeed>0.6 && this.anim.move) this._playAction(this.anim.move, 0.12);
-        else if(this.anim.idle) this._playAction(this.anim.idle, 0.15);
-      }
-
-      if(this._landLock>0) this._landLock = Math.max(0, this._landLock - dt);
-      this.mixer.update(dt);
-    }
-
-    if(this.group.position.y < SETTINGS.fallY) this.respawn();
-    this._justJumped = false;
+  const wish = new THREE.Vector3((r?1:0)-(l?1:0), 0, (b?1:0)-(f?1:0));
+  if (wish.lengthSq()>0){
+    wish.normalize().applyQuaternion(
+      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), camYaw)
+    );
   }
+
+  const speedTarget = SETTINGS.moveSpeed * (sprint?SETTINGS.sprintMult:1);
+  const desiredX = wish.x * speedTarget, desiredZ = wish.z * speedTarget;
+  const accel = this.onGround ? 22 : 10*SETTINGS.airControl;
+
+  this.velocity.x = THREE.MathUtils.damp(this.velocity.x, desiredX, accel, dt);
+  this.velocity.z = THREE.MathUtils.damp(this.velocity.z, desiredZ, accel, dt);
+
+  // Schwerkraft
+  this.velocity.y = Math.max(this.velocity.y - SETTINGS.gravity*dt, TERMINAL_FALL_SPEED);
+
+  // Substeps für robuste Kollision
+  const dispLen = this.velocity.length() * dt;
+  const stepsBySpeed = Math.max(1, Math.ceil(dispLen / Math.max(0.001, MAX_DISP_PER_SUBSTEP)));
+  const stepsByPen   = Math.max(1, Math.ceil(Math.abs(this.velocity.y)*dt / Math.max(SUBSTEP_PEN_TARGET, 0.075)));
+  const steps = Math.max(stepsBySpeed, stepsByPen);
+  const dtS = dt / steps;
+
+  let onGroundAccum = false;
+  for (let s=0; s<steps; s++){
+    const delta = this.velocity.clone().multiplyScalar(dtS);
+    this.capsule.start.add(delta);
+    this.capsule.end.add(delta);
+    const res = collideCapsuleWithWorld(this.capsule, this.velocity);
+    onGroundAccum = onGroundAccum || res.onGround;
+  }
+
+  // Bodenstatus + Ground-Snap
+  this.wasOnGround = this.onGround;
+  this.onGround = onGroundAccum;
+
+  if (!this.onGround && this.velocity.y <= 1.0){
+    if (snapCapsuleToGround(this.capsule, GROUND_SNAP_MAX)){
+      this.onGround = true;
+      if (this.velocity.y < 0) this.velocity.y = 0;
+    }
+  }
+
+  // Coyote-/Buffer-Timer
+  this.coyote  = this.onGround ? SETTINGS.coyoteTime : Math.max(0, this.coyote - dt);
+  this.jumpBuf = Math.max(0, this.jumpBuf - dt);
+
+  // Sprung auslösen (inkl. spürbarem Double-Jump)
+  if (this.jumpBuf > 0){
+    if (this.onGround || this.coyote > 0){
+      // Boden-/Coyote-Sprung
+      this.velocity.y = SETTINGS.jumpSpeed;
+      this._justJumped = true;
+      this.airJumpsLeft = this.maxAirJumps;
+      this.jumpBuf = 0; this.coyote = 0;
+    } else if (this.airJumpsLeft > 0){
+      // Double-Jump: immer additiver Kick
+      const base  = SETTINGS.jumpSpeed * SETTINGS.doubleJumpMult; // Grundimpuls
+      const carry = Math.max(this.velocity.y, 0) * 0.25;          // etwas Aufwärtsgeschw. mitnehmen
+      // additiv + Mindestschub, reduziert „toter“ zweiter Sprung
+      this.velocity.y = Math.max(this.velocity.y + base * 0.85, base + carry);
+
+      this._justJumped = true;
+      this.airJumpsLeft -= 1;
+      this.jumpBuf = 0;
+    }
+  }
+
+  // Position + Helper
+  const center = new THREE.Vector3().addVectors(this.capsule.start, this.capsule.end).multiplyScalar(0.5);
+  this.group.position.copy(center);
+  this.capsuleHelper.position.copy(center);
+  this.capsuleHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_CAPSULE;
+
+  // Blickrichtung weich zum Movement
+  if (wish.lengthSq()>1e-4){
+    const targetYaw = Math.atan2(wish.x, wish.z);
+    this.heading = THREE.MathUtils.damp(this.heading, targetYaw, 12, dt);
+  }
+  this.group.rotation.y = this.heading;
+
+  // Animationen
+  if (this.mixer){
+    const hSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+    if (this.anim.move){
+      const base = Math.max(0.01, SETTINGS.moveSpeed);
+      this.anim.move.timeScale = THREE.MathUtils.clamp(hSpeed / base, 0.75, 1.5);
+    }
+
+    if (!this.wasOnGround && this.onGround){
+      this.airJumpsLeft = this.maxAirJumps;
+      this._landLock = 0.25;
+      if (this.anim.land){
+        this._playOneShot(this.anim.land, 0.08, ()=>{
+          this._landLock = 0;
+          if (hSpeed>0.5 && this.anim.move) this._playAction(this.anim.move, 0.12);
+          else if (this.anim.idle) this._playAction(this.anim.idle, 0.12);
+        });
+      } else {
+        if (hSpeed>0.5 && this.anim.move) this._playAction(this.anim.move, 0.12);
+        else if (this.anim.idle) this._playAction(this.anim.idle, 0.12);
+      }
+    } else if (this.wasOnGround && !this.onGround){
+      if (this._justJumped && this.anim.jumpStart){
+        this._playOneShot(this.anim.jumpStart, 0.08, ()=>{
+          if (!this.onGround && this.anim.fall) this._playAction(this.anim.fall, 0.06);
+        });
+      } else if (this.anim.fall){
+        this._playAction(this.anim.fall, 0.06);
+      }
+    } else if (this.onGround && this._landLock<=0){
+      if (hSpeed>0.6 && this.anim.move) this._playAction(this.anim.move, 0.12);
+      else if (this.anim.idle) this._playAction(this.anim.idle, 0.15);
+    }
+
+    if (this._landLock>0) this._landLock = Math.max(0, this._landLock - dt);
+    this.mixer.update(dt);
+  }
+
+  if (this.group.position.y < SETTINGS.fallY) this.respawn();
+  this._justJumped = false;
+}
+
 
   respawn(toIndex=activeCheckpointIndex){
     const i = clamp(toIndex, 0, checkpoints.length-1);
