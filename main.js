@@ -1,4 +1,4 @@
-// three.js + Loader von CDN
+// ============================= Imports (CDN) ===============================
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
 import { GLTFLoader }  from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
 import { DRACOLoader } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/DRACOLoader.js";
@@ -8,7 +8,6 @@ import * as SkeletonUtils from "https://cdn.jsdelivr.net/npm/three@0.160.0/examp
 import { Capsule } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/math/Capsule.js";
 import { mergeGeometries } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js";
 
-// three-mesh-bvh – richtige Exporte/Version
 import {
   MeshBVHHelper,
   acceleratedRaycast,
@@ -21,7 +20,81 @@ THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
 THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
 THREE.Mesh.prototype.raycast = acceleratedRaycast;
 
-/* ================== DEBUG ================== */
+
+// ============================= UI / Screens ================================
+const $  = (s, r=document) => r.querySelector(s);
+const $$ = (s, r=document) => Array.from(r.querySelectorAll(s));
+const body = document.body;
+
+const canvas = $("#app");
+const statusEl = $("#status");
+const hud = $("#hud");
+
+// Menu / Loading / Pause Controls
+const btnStart   = $("#btn-start");
+const btnOptions = $("#btn-options");
+const btnCredits = $("#btn-credits");
+const btnBack1   = $("#btn-back-1");
+const btnBack2   = $("#btn-back-2");
+
+const btnResume  = $("#btn-resume");
+const btnRestart = $("#btn-restart");
+const btnQuit    = $("#btn-quit");
+
+const loadingBar  = $("#loading-bar");
+const loadingText = $("#loading-text");
+
+if (!body.hasAttribute("data-screen")) body.setAttribute("data-screen", "menu");
+
+function setScreen(name){
+  body.setAttribute("data-screen", name);
+  if (name === "game") {
+    canvas?.focus({ preventScroll: true });
+  }
+}
+function openSubPanel(name){
+  const sub = $("#menu-sub");
+  sub.classList.remove("hidden");
+  $$(".menu-sub .panel-content").forEach(p => p.classList.toggle("active", p.dataset.panel === name));
+}
+function closeSubPanel(){
+  $("#menu-sub")?.classList.add("hidden");
+}
+function setStatus(t){ if (statusEl) statusEl.textContent = t; }
+function setLoadingPercent(pct){
+  const p = Math.max(0, Math.min(100, Math.round(pct)));
+  loadingBar?.style.setProperty("--pct", p);
+  if (loadingText) loadingText.textContent = `Lade Assets… ${p}%`;
+  const prog = $(".progress");
+  if (prog) prog.setAttribute("aria-valuenow", String(p));
+}
+
+// Menü Interaktionen
+btnStart?.addEventListener("click", async () => {
+  await startGame(); // startet Laden + Welt + Loop
+});
+btnOptions?.addEventListener("click", () => openSubPanel("options"));
+btnCredits?.addEventListener("click", () => openSubPanel("credits"));
+btnBack1  ?.addEventListener("click", closeSubPanel);
+btnBack2  ?.addEventListener("click", closeSubPanel);
+
+// Pause-Interaktionen
+btnResume ?.addEventListener("click", () => setPaused(false));
+btnRestart?.addEventListener("click", () => { setPaused(false); player?.respawn(); });
+btnQuit   ?.addEventListener("click", () => { setPaused(true); setScreen("menu"); });
+
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    if (body.getAttribute("data-screen") === "game") {
+      setPaused(true); setScreen("paused");
+    } else if (body.getAttribute("data-screen") === "paused") {
+      setPaused(false); setScreen("game");
+    }
+  }
+});
+
+
+// ============================= Config / Debug ==============================
 const DEBUG = {
   ENABLED: true,
   SHOW_STATIC: true,     // F2: Boden-/BBox-/BVH-Helpers
@@ -34,7 +107,6 @@ const DEBUG_COLORS = {
   capsule: 0xff00aa
 };
 
-/* ================== CONFIG ================== */
 const ASSET_PATHS = { character: "Business Man.glb" };
 const MODEL_PACK_PATHS = [
   "Computer Mouse.glb","Computer.glb","Desk.glb","Headphones.glb",
@@ -58,25 +130,24 @@ const TARGET_WIDTH_BY_CAT = {
 const SETTINGS = {
   gravity: 24, moveSpeed: 7.0, sprintMult: 1.5, jumpSpeed: 9.5,
   airControl: 0.45, camDistance: 5.8, camHeight: 2.2, camLag: 0.12,
-  playerRadius: 0.35, playerHeight: 1.7, fallY: -80
+  playerRadius: 0.35, playerHeight: 1.7, fallY: -80,
+  maxAirJumps: 1, doubleJumpMult: 0.92
 };
 const WALKABLE_NORMAL_Y = 0.6;
 const TERMINAL_FALL_SPEED = -40;
 const SUBSTEP_PEN_TARGET  = 0.10;
 
-// ---- Anti-Glitch-Extras ----
 const MAX_DISP_PER_SUBSTEP = SETTINGS.playerRadius * 0.35;
 const MAX_RESOLVE_ITERS    = 12;
 const SKIN_WIDTH           = 0.02;
 const GROUND_SNAP_MAX      = 0.32;
 
-// ---- Gameplay-Scaling ----
 const PLATFORM_SIZE_MULT = 1.4;
 const START_SIZE_MULT    = 1.6;
 const KEEP_Y_SCALE       = true;
 
-/* ============ RENDER/SCENE/CAMERA ============ */
-const canvas = document.getElementById("app");
+
+// ============================= Renderer / Scene ============================
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -85,44 +156,76 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 
 const SKY = new THREE.Color(0xBFE8FF);
-const scene = new THREE.Scene(); scene.background = SKY; scene.fog = new THREE.Fog(SKY, 50, 220);
+const scene = new THREE.Scene();
+scene.background = SKY;
+scene.fog = new THREE.Fog(SKY, 50, 220);
+
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.05, 800);
 camera.position.set(0,2,7);
+
 scene.add(new THREE.HemisphereLight(0xdfefff, 0xbfd4e6, 0.9));
-const sun = new THREE.DirectionalLight(0xffffff, 0.9); sun.position.set(6,12,8); sun.castShadow = true;
-sun.shadow.mapSize.set(2048,2048); sun.shadow.camera.near=0.5; sun.shadow.camera.far=180; sun.shadow.normalBias=0.02; scene.add(sun);
+const sun = new THREE.DirectionalLight(0xffffff, 0.9);
+sun.position.set(6,12,8);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048,2048);
+sun.shadow.camera.near = 0.5;
+sun.shadow.camera.far  = 180;
+sun.shadow.normalBias  = 0.02;
+scene.add(sun);
 
-/* ================ LOADERS ================= */
-const gltfLoader = new GLTFLoader();
-const draco = new DRACOLoader(); draco.setDecoderPath("https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/"); gltfLoader.setDRACOLoader(draco);
-const ktx2 = new KTX2Loader().setTranscoderPath("https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/basis/").detectSupport(renderer);
-gltfLoader.setKTX2Loader(ktx2); gltfLoader.setMeshoptDecoder(MeshoptDecoder);
 
-/* ================ STATE ================= */
+// ============================= Loaders/Manager =============================
+let loadingManager = null;
+let gltfLoader = null;
+let draco = null;
+let ktx2  = null;
+
+function setupLoaders(){
+  loadingManager = new THREE.LoadingManager();
+
+  loadingManager.onStart = () => { setScreen("loading"); setLoadingPercent(0); };
+  loadingManager.onProgress = (_url, loaded, total) => {
+    const pct = total ? (loaded/total)*100 : 10;
+    setLoadingPercent(pct);
+  };
+  loadingManager.onLoad = () => {
+    setLoadingPercent(100);
+  };
+
+  gltfLoader = new GLTFLoader(loadingManager);
+  draco = new DRACOLoader();
+  draco.setDecoderPath("https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/");
+  gltfLoader.setDRACOLoader(draco);
+
+  ktx2 = new KTX2Loader().setTranscoderPath("https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/basis/").detectSupport(renderer);
+  gltfLoader.setKTX2Loader(ktx2);
+  gltfLoader.setMeshoptDecoder(MeshoptDecoder);
+}
+
+
+// ============================= Game State ==================================
 const clock = new THREE.Clock();
 const keys = new Set();
-const checkpoints = []; let activeCheckpointIndex = 0;
-const statusEl = document.getElementById("status");
-function setStatus(t){ if(statusEl) statusEl.textContent = t; }
+const checkpoints = [];
+let activeCheckpointIndex = 0;
 
-// Kollisionswelt (statisch)
 const _collisionGeoms = [];
 let worldCollisionMesh = null;
 let worldBVHHelper = null;
 
-// Debug-Layer (statisch)
 const debugStatic = new THREE.Group();
 scene.add(debugStatic);
 
-/* ================ UTILS ================= */
+let player = null;
+let isPaused = false;
+function setPaused(v){ isPaused = v; }
+
+
+// ============================= Utils =======================================
 function inferModelCategory(nameLower){
-  const entries = Object.entries(MODEL_CATEGORIES);
-  for (let i=0; i<entries.length; i++){
-    const cat = entries[i][0], words = entries[i][1];
-    if(!words.length) continue;
-    for (let j=0; j<words.length; j++){
-      if(nameLower.indexOf(words[j]) !== -1) return cat;
-    }
+  for (const [cat, words] of Object.entries(MODEL_CATEGORIES)) {
+    if (!words.length) continue;
+    for (const w of words) if (nameLower.indexOf(w) !== -1) return cat;
   }
   return "generic";
 }
@@ -135,13 +238,8 @@ function computeBBox(obj){
 function escapeLiteralPercents(p){ return p.replace(/%/g,"%25"); }
 function expandPathCandidates(p){
   const v=[p,encodeURI(p),escapeLiteralPercents(p),encodeURI(escapeLiteralPercents(p))];
-  const out=[];
-  for(let i=0;i<v.length;i++){
-    const x=v[i]; out.push(x);
-    if(x.indexOf("/")===-1) out.push("assets/models/"+x);
-  }
-  const seen={}; const res=[];
-  for(let i=0;i<out.length;i++){ const k=out[i]; if(!seen[k]){ seen[k]=1; res.push(k); } }
+  const out=[]; for(const x of v){ out.push(x); if(x.indexOf("/")===-1) out.push("assets/models/"+x); }
+  const seen=new Set(); const res=[]; for(const k of out){ if(!seen.has(k)){ seen.add(k); res.push(k); } }
   return res;
 }
 function loadGLBWithFallback(paths){
@@ -168,19 +266,16 @@ async function loadOneModel(path){
   return { name:url.split("/").pop(), category:inferModelCategory(url.toLowerCase()), template:root, baseSize:tmp.size.clone(), animations:g.animations||[] };
 }
 async function loadModelPack(paths){
-  const results=[]; for(let i=0;i<paths.length;i++){ try{ results.push(await loadOneModel(paths[i])); } catch(e){ console.warn("Konnte Modell nicht laden:",paths[i],e);} }
-  const byCat={}; const cats=Object.keys(MODEL_CATEGORIES);
-  for(let i=0;i<cats.length;i++) byCat[cats[i]]=[];
-  for(let i=0;i<results.length;i++){ const m=results[i]; if(byCat[m.category]) byCat[m.category].push(m); }
+  const results=[];
+  for(const p of paths){ try{ results.push(await loadOneModel(p)); }catch(e){ console.warn("Konnte Modell nicht laden:",p,e);} }
+  const byCat={}; for(const k of Object.keys(MODEL_CATEGORIES)) byCat[k]=[];
+  for(const m of results){ if(byCat[m.category]) byCat[m.category].push(m); }
   const all=results.slice(0);
-  for(let i=0;i<cats.length;i++){ const k=cats[i]; if(byCat[k].length===0) byCat[k]=byCat.generic.length?byCat.generic:all; }
+  for(const k of Object.keys(MODEL_CATEGORIES)){ if(byCat[k].length===0) byCat[k]=byCat.generic.length?byCat.generic:all; }
   return { byCat, all };
 }
 function pickModel(pack, preferredCats){
-  for(let i=0;i<preferredCats.length;i++){
-    const arr=pack.byCat[preferredCats[i]];
-    if(arr && arr.length) return arr[(Math.random()*arr.length)|0];
-  }
+  for(const c of preferredCats){ const arr=pack.byCat[c]; if(arr && arr.length) return arr[(Math.random()*arr.length)|0]; }
   const all=pack.all; return all[(Math.random()*all.length)|0];
 }
 function scaledSizeFor(modelDef, targetWidth){
@@ -190,19 +285,20 @@ function scaledSizeFor(modelDef, targetWidth){
 }
 function diagRadius(size){ return 0.5 * Math.hypot(size.x, size.z); }
 
-/* ======= Kollisionsgeometrie sammeln ======= */
+
+// ============================= Collision Baking ============================
 function bakeMeshToCollision(mesh){
   if(!mesh.geometry || !mesh.geometry.isBufferGeometry) return;
   let g = mesh.geometry.clone();
   if (g.index) g = g.toNonIndexed();
   mesh.updateWorldMatrix(true,false);
   g.applyMatrix4(mesh.matrixWorld);
-  const names = Object.keys(g.attributes);
-  for(let i=0;i<names.length;i++){ const n=names[i]; if(n!=="position") g.deleteAttribute(n); }
+  for(const n of Object.keys(g.attributes)){ if(n!=="position") g.deleteAttribute(n); }
   _collisionGeoms.push(g);
 }
 
-/* ======= Plattformen (vergrößerte X/Z) ======= */
+
+// ============================= Platforms/Ground ============================
 function placeModelPlatform(modelDef, { position=new THREE.Vector3(), yaw=0, targetWidth=2.5 } = {}){
   const root = SkeletonUtils.clone(modelDef.template);
   const baseXZ = Math.max(modelDef.baseSize.x, modelDef.baseSize.z);
@@ -226,8 +322,6 @@ function placeModelPlatform(modelDef, { position=new THREE.Vector3(), yaw=0, tar
 
   return { group, size: tmp.size.clone() };
 }
-
-/* ======= Fallback Box (vergrößerte X/Z) ======= */
 function makeBoxPlatform(w=4, h=0.3, d=2, pos=new THREE.Vector3(), yaw=0){
   const W = w * PLATFORM_SIZE_MULT;
   const D = d * PLATFORM_SIZE_MULT;
@@ -244,8 +338,6 @@ function makeBoxPlatform(w=4, h=0.3, d=2, pos=new THREE.Vector3(), yaw=0){
 
   return { group, size:new THREE.Vector3(W,H,D) };
 }
-
-/* ======= Boden ======= */
 function makeGround(){
   const groundVis = new THREE.Mesh(new THREE.PlaneGeometry(26,26), new THREE.MeshStandardMaterial({ color:0xEAF4FF, roughness:0.95, metalness:0.05 }));
   groundVis.rotation.x = -Math.PI/2; groundVis.receiveShadow = true; scene.add(groundVis);
@@ -269,7 +361,14 @@ function makeGround(){
   }
 }
 
-/* ======= Weltbau (Spiralpfad) ======= */
+
+// ============================= World Build =================================
+function roughCheckpointAbove(res){
+  const c = res.group.position.clone();
+  c.y = res.group.position.y + res.size.y + SETTINGS.playerHeight * 0.6 + 0.2;
+  return c;
+}
+
 async function makeITWorld(modelPack){
   function select(cats, scaleHint){
     const cat = cats[0] || "generic";
@@ -299,7 +398,7 @@ async function makeITWorld(modelPack){
 
   const startSel = select(["keyboard","desk","laptop","generic"], 1.25 * START_SIZE_MULT);
   const startRes = place(startSel, new THREE.Vector3(0,0.2,0), 0);
-  checkpoints.push({ pos: new THREE.Vector3(0, 1.4, 0) });
+  checkpoints.push({ pos: roughCheckpointAbove(startRes) });
 
   const stepsTotal=50, easySteps=5;
   const riseEasy=0.9, riseNorm=1.3, gapEasy=0.9, gapNorm=1.15, turnPerStep=Math.PI/7;
@@ -324,15 +423,18 @@ async function makeITWorld(modelPack){
     const res = place(sel, nextCenter, yaw);
 
     if(i % 7 === 6){
-      const cp = nextCenter.clone(); cp.y += 1.3;
-      const beacon = new THREE.PointLight(0x66ccff, 1.2, 10); beacon.position.copy(cp); scene.add(beacon);
+      const cp = roughCheckpointAbove(res);
+      const beacon = new THREE.PointLight(0x66ccff, 1.2, 10);
+      beacon.position.copy(cp).add(new THREE.Vector3(0, 0.2, 0));
+      scene.add(beacon);
       checkpoints.push({ pos: cp });
     }
     prevCenter = nextCenter; prevSize = res.size.clone();
   }
 }
 
-/* ======= Kollisionswelt (merge + BVH) ======= */
+
+// ============================= Collision World ============================
 function buildWorldCollision(){
   if(!_collisionGeoms.length){
     console.warn("Keine Kollisionsgeometrie gesammelt!");
@@ -355,7 +457,44 @@ function buildWorldCollision(){
   }
 }
 
-/* ======= Mathe-Helper: Segment↔Segment nächste Punkte ======= */
+
+// ============================= Snap/Collision ==============================
+function raycastDownToSurface(origin, maxDist=60){
+  if(!worldCollisionMesh) return null;
+  const ray = new THREE.Raycaster(
+    new THREE.Vector3(origin.x, origin.y, origin.z).add(new THREE.Vector3(0, 5, 0)),
+    new THREE.Vector3(0,-1,0),
+    0,
+    maxDist + 5
+  );
+  const hits = ray.intersectObject(worldCollisionMesh, true);
+  if(!hits.length) return null;
+
+  for(const h of hits){
+    if (!h.face) continue;
+    const nMat = new THREE.Matrix3().getNormalMatrix(h.object.matrixWorld);
+    const n = h.face.normal.clone().applyMatrix3(nMat).normalize();
+    if (n.y > 0.2) {
+      return { point: h.point.clone(), normal: n };
+    }
+  }
+  return null;
+}
+function alignCheckpointsToSurface(){
+  for(const cp of checkpoints){
+    const hit = raycastDownToSurface(cp.pos, 80);
+    if(hit){
+      cp.pos.x = hit.point.x;
+      cp.pos.z = hit.point.z;
+      cp.pos.y = hit.point.y + (SETTINGS.playerHeight * 0.5) + Math.max(0.02, SKIN_WIDTH);
+    } else {
+      cp.pos.y = Math.max(cp.pos.y, 0.0 + (SETTINGS.playerHeight*0.5) + 0.05);
+    }
+  }
+}
+
+
+// ============================= Math Helpers ================================
 const _u = new THREE.Vector3(), _v = new THREE.Vector3(), _w = new THREE.Vector3();
 const _c1 = new THREE.Vector3(), _c2 = new THREE.Vector3();
 function closestPointsSegmentSegment(p1,q1,p2,q2, out1, out2){
@@ -405,12 +544,10 @@ function closestPointsSegmentSegment(p1,q1,p2,q2, out1, out2){
   return out1.distanceTo(out2);
 }
 
-/* ======= Exakt: Segment ↔ Dreieck (nächste Punkte) ======= */
 const _tri = new THREE.Triangle();
 const _nrm = new THREE.Vector3();
 const _tmpP = new THREE.Vector3();
 const _tmpQ = new THREE.Vector3();
-// FIX: fehlende temporäre Ausgaben
 const _pTri = new THREE.Vector3();
 const _pSeg = new THREE.Vector3();
 
@@ -458,7 +595,8 @@ function segmentTriangleClosestPoints(segStart, segEnd, a, b, c, outTri, outSeg)
   return Math.sqrt(minDistSq);
 }
 
-/* ======= Capsule ↔ BVH Kollision ======= */
+
+// ============================= Capsule vs World ============================
 const _capsuleSphere = new THREE.Sphere();
 const _capsuleCenter = new THREE.Vector3();
 const _tempMatrix = new THREE.Matrix4();
@@ -530,8 +668,6 @@ function collideCapsuleWithWorld(capsule, velocity){
 
   return { collided, onGround };
 }
-
-/* ======= Ground Snap ======= */
 function snapCapsuleToGround(capsule, maxDist=GROUND_SNAP_MAX){
   if(!worldCollisionMesh) return false;
 
@@ -567,7 +703,8 @@ function snapCapsuleToGround(capsule, maxDist=GROUND_SNAP_MAX){
   return false;
 }
 
-/* ======= Player (Capsule + Animation State Machine) ======= */
+
+// ============================= Player ======================================
 class PlayerController{
   constructor(){
     this.group=new THREE.Group(); scene.add(this.group);
@@ -593,17 +730,19 @@ class PlayerController{
     this.onGround=false; this.wasOnGround=false;
     this._landLock=0;
 
+    this.maxAirJumps = SETTINGS.maxAirJumps;
+    this.airJumpsLeft = this.maxAirJumps;
+
     this._loadOrMakeCapsule();
   }
 
   _findClip(clips, names){
-    function norm(s){ return s.toLowerCase().replace(/[\s_]+/g,""); }
-    const list = clips || [];
-    for(let i=0;i<names.length;i++){
-      const want = norm(names[i]);
-      for(let j=0;j<list.length;j++){
-        const have = norm(list[j].name||"");
-        if(have.indexOf(want)!==-1) return list[j];
+    const norm = s => s.toLowerCase().replace(/[\s_]+/g,"");
+    for(const wantName of names){
+      const want = norm(wantName);
+      for(const c of (clips||[])){
+        const have = norm(c.name||"");
+        if(have.indexOf(want)!==-1) return c;
       }
     }
     return null;
@@ -636,10 +775,9 @@ class PlayerController{
     this._playAction(this.anim.idle, 0.0);
   }
 
-  _playAction(action, fade){
+  _playAction(action, fade=0.2){
     if(!action) return;
     if(this.anim.current === action) return;
-    fade = (fade==null)?0.2:fade;
     action.reset().play();
     if(this.anim.current){
       this.anim.current.crossFadeTo(action, fade, false);
@@ -647,9 +785,8 @@ class PlayerController{
     this.anim.current = action;
   }
 
-  _playOneShot(action, fade, onDone){
+  _playOneShot(action, fade=0.12, onDone){
     if(!action){ onDone && onDone(); return; }
-    fade = (fade==null)?0.12:fade;
     action.reset();
     action.setLoop(THREE.LoopOnce);
     action.clampWhenFinished = true;
@@ -722,6 +859,12 @@ class PlayerController{
     this.velocity.set(0,0,0);
     this.onGround=false; this.wasOnGround=false;
     this._landLock = 0;
+    this.airJumpsLeft = this.maxAirJumps;
+
+    snapCapsuleToGround(this.capsule, 0.5);
+    const center2 = new THREE.Vector3().addVectors(this.capsule.start, this.capsule.end).multiplyScalar(0.5);
+    this.group.position.copy(center2);
+    this.capsuleHelper.position.copy(center2);
   }
 
   get position(){ return this.group.position; }
@@ -752,9 +895,17 @@ class PlayerController{
     this.velocity.y -= SETTINGS.gravity*dt;
     if(this.velocity.y < TERMINAL_FALL_SPEED) this.velocity.y = TERMINAL_FALL_SPEED;
 
-    if(this.onGround && _pendingJump){
-      this.velocity.y = SETTINGS.jumpSpeed;
-      this._justJumped = true;
+    if (_pendingJump) {
+      if (this.onGround) {
+        this.velocity.y = SETTINGS.jumpSpeed;
+        this._justJumped = true;
+        this.airJumpsLeft = this.maxAirJumps;
+      } else if (this.airJumpsLeft > 0) {
+        const keepUp = Math.max(this.velocity.y, 0);
+        this.velocity.y = Math.max(keepUp, SETTINGS.jumpSpeed * SETTINGS.doubleJumpMult);
+        this._justJumped = true;
+        this.airJumpsLeft -= 1;
+      }
     }
     _pendingJump = false;
 
@@ -806,6 +957,7 @@ class PlayerController{
       }
 
       if(!this.wasOnGround && this.onGround){
+        this.airJumpsLeft = this.maxAirJumps;
         this._landLock = 0.25;
         if(this.anim.land){
           this._playOneShot(this.anim.land, 0.08, ()=>{
@@ -853,7 +1005,8 @@ class PlayerController{
   }
 }
 
-/* ======= Camera & Input ======= */
+
+// ============================= Camera & Input ==============================
 let camYaw=0, camPitch=0.12, isDragging=false, lastX=0, lastY=0;
 canvas.addEventListener("mousedown",e=>{ isDragging=true; lastX=e.clientX; lastY=e.clientY; });
 window.addEventListener("mouseup",()=>{ isDragging=false; });
@@ -885,17 +1038,46 @@ window.addEventListener("resize",()=>{
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-/* ======= Boot ======= */
-makeGround();
-setStatus("Lade Plattform-Assets…");
-const MODEL_PACK = await loadModelPack(MODEL_PACK_PATHS);
-await makeITWorld(MODEL_PACK);
-buildWorldCollision();
 
-const player = new PlayerController();
-if(checkpoints.length){ setStatus("Lade Charakter…"); }
+// ============================= Boot / Start ================================
+let gameStarted = false;
 
+async function startGame(){
+  if (gameStarted) { // doppelklick-schutz
+    setScreen("game"); setPaused(false);
+    return;
+  }
+  gameStarted = true;
+
+  setupLoaders();              // LoadingManager + Loader
+  setScreen("loading");
+  setStatus("Initialisiere…");
+
+  // Welt aufbauen (synchron + geladen)
+  makeGround();
+  setStatus("Lade Plattform-Assets…");
+
+  const MODEL_PACK = await loadModelPack(MODEL_PACK_PATHS);
+  await makeITWorld(MODEL_PACK);
+
+  buildWorldCollision();
+  alignCheckpointsToSurface();
+
+  setStatus("Lade Charakter…");
+  player = new PlayerController();
+
+  // kleiner UI-Delay für Ladegefühl
+  setTimeout(()=>{ setScreen("game"); }, 150);
+
+  // Render-Loop starten
+  runLoop();
+}
+
+
+// ============================= Loop / Update ===============================
+const camTarget=new THREE.Vector3();
 function updateCheckpoint(){
+  if(!player) return;
   let closest=0, best=Infinity;
   for(let i=0;i<checkpoints.length;i++){
     const d=checkpoints[i].pos.distanceToSquared(player.position);
@@ -906,27 +1088,35 @@ function updateCheckpoint(){
     setStatus(`Checkpoint ${activeCheckpointIndex+1}/${checkpoints.length} erreicht`);
   }
 }
-const camTarget=new THREE.Vector3();
 function updateCamera(dt){
+  if(!player) return;
   const sph=new THREE.Spherical(SETTINGS.camDistance, Math.PI/2 - camPitch, camYaw);
   const offset=new THREE.Vector3().setFromSpherical(sph);
   const desired=player.position.clone().add(new THREE.Vector3(0,SETTINGS.camHeight,0)).add(offset);
   camera.position.lerp(desired, 1 - Math.pow(1-SETTINGS.camLag, dt*60));
   camTarget.copy(player.position).add(new THREE.Vector3(0,1.2,0)); camera.lookAt(camTarget);
 }
-let tAccum=0; function updateLighting(dt){ tAccum += dt*0.1; sun.position.set(Math.cos(tAccum)*10, 10+Math.sin(tAccum)*2, 8); }
+let tAccum=0;
+function updateLighting(dt){ tAccum += dt*0.1; sun.position.set(Math.cos(tAccum)*10, 10+Math.sin(tAccum)*2, 8); }
 
-/* ======= LOOP ======= */
-renderer.setAnimationLoop(()=>{
-  const dt=Math.min(0.033, clock.getDelta());
-  player.update(dt, camYaw);
-  updateCheckpoint();
-  updateCamera(dt);
-  updateLighting(dt);
+function runLoop(){
+  renderer.setAnimationLoop(()=>{
+    const dt=Math.min(0.033, clock.getDelta());
 
-  debugStatic.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
-  if(worldBVHHelper) worldBVHHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC && DEBUG.SHOW_BVH;
-  if(player && player.capsuleHelper) player.capsuleHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_CAPSULE;
+    if (!isPaused && player){
+      player.update(dt, camYaw);
+      updateCheckpoint();
+      updateCamera(dt);
+      updateLighting(dt);
+    } else {
+      // auch pausiert die Kamera zumindest verfolgen
+      updateCamera(dt);
+    }
 
-  renderer.render(scene, camera);
-});
+    debugStatic.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
+    if(worldBVHHelper) worldBVHHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC && DEBUG.SHOW_BVH;
+    if(player && player.capsuleHelper) player.capsuleHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_CAPSULE;
+
+    renderer.render(scene, camera);
+  });
+}

@@ -1,14 +1,92 @@
 <!doctype html>
-<html lang="de">
+<html lang="de" data-theme="dark">
   <head>
     <meta charset="utf-8" />
     <title>Only Up – IT Edition (three.js)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
     <link rel="stylesheet" href="./style.css" />
+    <meta name="color-scheme" content="dark light" />
   </head>
-  <body>
-    <div id="hud">
+  <!-- App-State via data-screen: menu | loading | game | paused -->
+  <body data-screen="menu">
+    <noscript>
+      <div class="noscript">Dieses Spiel benötigt JavaScript.</div>
+    </noscript>
+
+    <!-- Homescreen / Hauptmenü -->
+    <section id="menu" class="screen screen--menu" aria-label="Hauptmenü">
+      <div class="menu-card">
+        <h1 class="game-title">Only Up <span>IT Edition</span></h1>
+
+        <div class="menu-actions">
+          <button id="btn-start" class="btn btn-primary">▶ Spiel starten</button>
+          <button id="btn-options" class="btn">⚙︎ Optionen</button>
+          <button id="btn-credits" class="btn">ℹ︎ Credits</button>
+        </div>
+
+        <div id="menu-sub" class="menu-sub hidden" role="region" aria-live="polite">
+          <!-- Inhalte werden per JS umgeschaltet -->
+          <div data-panel="options" class="panel-content">
+            <h2>Optionen</h2>
+            <label class="field">
+              <span>Grafikqualität</span>
+              <select id="opt-quality">
+                <option value="high" selected>Hoch</option>
+                <option value="medium">Mittel</option>
+                <option value="low">Niedrig</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Musiklautstärke</span>
+              <input id="opt-volume" type="range" min="0" max="1" step="0.01" value="0.7"/>
+            </label>
+            <button id="btn-back-1" class="btn btn-ghost">← Zurück</button>
+          </div>
+
+          <!-- im Menü, innerhalb #menu-sub -->
+<div data-panel="credits" class="panel-content">
+  <h2>Credits</h2>
+  <ul class="credits-list">
+    <li>Alejandor</li>
+    <li>Kristian</li>
+    <li>Linus</li>
+  </ul>
+  <button id="btn-back-2" class="btn btn-ghost">← Zurück</button>
+</div>
+
+
+        <p class="hint">Drücke <kbd>WASD</kbd> zum Bewegen, <kbd>Leertaste</kbd> zum Springen. <kbd>ESC</kbd> öffnet das Pause-Menü.</p>
+      </div>
+    </section>
+
+    <!-- Ladescreen -->
+    <section id="loading" class="screen screen--loading" aria-label="Ladevorgang" aria-live="polite">
+      <div class="loading-card">
+        <div class="loader-logo">Only Up <span>IT Edition</span></div>
+        <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <div id="loading-bar" class="bar" style="--pct: 0;"></div>
+        </div>
+        <p id="loading-text" class="loading-text">Lade Assets… 0%</p>
+        <p class="tip">Tipp: Du kannst mit <kbd>R</kbd> respawnen.</p>
+      </div>
+    </section>
+
+    <!-- Pause-Menü (optional) -->
+    <section id="pause" class="screen screen--pause" aria-label="Pause-Menü">
+      <div class="pause-card">
+        <h2>Pause</h2>
+        <div class="menu-actions">
+          <button id="btn-resume" class="btn btn-primary">Weiter</button>
+          <button id="btn-restart" class="btn">Neu starten</button>
+          <button id="btn-quit" class="btn btn-ghost">Zum Hauptmenü</button>
+        </div>
+        <p class="hint small">Drücke <kbd>ESC</kbd>, um fortzufahren.</p>
+      </div>
+    </section>
+
+    <!-- HUD (ingame) -->
+    <div id="hud" aria-live="polite">
       <div class="panel">
         <h1>Only Up – IT Edition</h1>
         <p>
@@ -17,14 +95,13 @@
           Maus ziehen = Kamera drehen &nbsp;|&nbsp; Mausrad = Zoom<br/>
           R = Respawn &nbsp;|&nbsp; F1/F2/F3 = Debug Toggle
         </p>
-        <p id="status">Lade…</p>
+        <p id="status">Bereit.</p>
       </div>
     </div>
 
-    <canvas id="app"></canvas>
+    <canvas id="app" tabindex="0" aria-label="3D Szene"></canvas>
 
-    <!-- Spiel -->
-
+    <!-- three.js -->
     <script type="importmap">
       {
         "imports": {
@@ -32,6 +109,8 @@
         }
       }
     </script>
+
+    <!-- Dein Spiel -->
     <script type="module" src="./main.js"></script>
   </body>
 </html>
