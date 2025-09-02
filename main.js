@@ -8,9 +8,8 @@ import * as SkeletonUtils from "https://cdn.jsdelivr.net/npm/three@0.160.0/examp
 import { Capsule } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/math/Capsule.js";
 import { mergeGeometries } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js";
 
-// three-mesh-bvh (richtige Exporte/Version)
+// three-mesh-bvh – richtige Exporte/Version
 import {
-  MeshBVH,
   MeshBVHHelper,
   acceleratedRaycast,
   computeBoundsTree,
@@ -26,9 +25,8 @@ THREE.Mesh.prototype.raycast = acceleratedRaycast;
 const DEBUG = {
   ENABLED: true,
   SHOW_STATIC: true,     // F2: Boden-/BBox-/BVH-Helpers
-  SHOW_DYNAMIC: true,    // F3: (reserviert)
-  SHOW_CAPSULE: true,    // Spieler-Capsule anzeigen
-  SHOW_BVH: false,       // BVH-Helper (Performance!)
+  SHOW_CAPSULE: false,   // F4: Spieler-Kapsel anzeigen
+  SHOW_BVH: false        // F3: BVH-Helper (Performance!)
 };
 const DEBUG_COLORS = {
   bbox: 0x3b82f6,
@@ -42,7 +40,7 @@ const MODEL_PACK_PATHS = [
   "Computer Mouse.glb","Computer.glb","Desk.glb","Headphones.glb",
   "Keyboard.glb","Laptop.glb","Monitor.glb","Office Chair (1).glb",
   "Office Chair.glb","Office Printer Copier.glb","Phone.glb",
-  "server rack.glb","Standing Desk.glb","Stapler.glb",
+  "server rack.glb","Standing Desk.glb","Stapler.glb"
 ];
 const MODEL_CATEGORIES = {
   keyboard:["keyboard"], laptop:["laptop","notebook"], server:["server","rack"],
@@ -60,11 +58,22 @@ const TARGET_WIDTH_BY_CAT = {
 const SETTINGS = {
   gravity: 24, moveSpeed: 7.0, sprintMult: 1.5, jumpSpeed: 9.5,
   airControl: 0.45, camDistance: 5.8, camHeight: 2.2, camLag: 0.12,
-  playerRadius: 0.35, playerHeight: 1.7, fallY: -80,
+  playerRadius: 0.35, playerHeight: 1.7, fallY: -80
 };
 const WALKABLE_NORMAL_Y = 0.6;
 const TERMINAL_FALL_SPEED = -40;
 const SUBSTEP_PEN_TARGET  = 0.10;
+
+// ---- Anti-Glitch-Extras ----
+const MAX_DISP_PER_SUBSTEP = SETTINGS.playerRadius * 0.35;
+const MAX_RESOLVE_ITERS    = 12;
+const SKIN_WIDTH           = 0.02;
+const GROUND_SNAP_MAX      = 0.32;
+
+// ---- Gameplay-Scaling ----
+const PLATFORM_SIZE_MULT = 1.4;
+const START_SIZE_MULT    = 1.6;
+const KEEP_Y_SCALE       = true;
 
 /* ============ RENDER/SCENE/CAMERA ============ */
 const canvas = document.getElementById("app");
@@ -101,7 +110,7 @@ const _collisionGeoms = [];
 let worldCollisionMesh = null;
 let worldBVHHelper = null;
 
-// Debug-Layer
+// Debug-Layer (statisch)
 const debugStatic = new THREE.Group();
 scene.add(debugStatic);
 
@@ -184,40 +193,33 @@ function diagRadius(size){ return 0.5 * Math.hypot(size.x, size.z); }
 /* ======= Kollisionsgeometrie sammeln ======= */
 function bakeMeshToCollision(mesh){
   if(!mesh.geometry || !mesh.geometry.isBufferGeometry) return;
-
-  // 1) Geometrie klonen und in NON-indexed umwandeln -> garantiert mergebar
   let g = mesh.geometry.clone();
   if (g.index) g = g.toNonIndexed();
-
-  // 2) in Weltkoordinaten bringen
   mesh.updateWorldMatrix(true,false);
   g.applyMatrix4(mesh.matrixWorld);
-
-  // 3) nur Position behalten
   const names = Object.keys(g.attributes);
   for(let i=0;i<names.length;i++){ const n=names[i]; if(n!=="position") g.deleteAttribute(n); }
-
   _collisionGeoms.push(g);
 }
 
-/* ======= Plattformen ======= */
+/* ======= Plattformen (vergrößerte X/Z) ======= */
 function placeModelPlatform(modelDef, { position=new THREE.Vector3(), yaw=0, targetWidth=2.5 } = {}){
   const root = SkeletonUtils.clone(modelDef.template);
   const baseXZ = Math.max(modelDef.baseSize.x, modelDef.baseSize.z);
-  const scale = baseXZ>1e-4 ? (targetWidth/baseXZ) : 1;
-  root.scale.setScalar(scale);
+  const baseScale = baseXZ>1e-4 ? (targetWidth/baseXZ) : 1;
+  const sXZ = baseScale * PLATFORM_SIZE_MULT;
+  const sY  = KEEP_Y_SCALE ? baseScale : sXZ;
+  root.scale.set(sXZ, sY, sXZ);
   root.updateMatrixWorld(true);
-  const tmp = computeBBox(root);
 
+  const tmp = computeBBox(root);
   const group = new THREE.Group();
-  root.position.y -= tmp.box.min.y; // flach aufsetzen
+  root.position.y -= tmp.box.min.y;
   group.rotation.y = yaw; group.position.copy(position);
   group.add(root); scene.add(group);
 
-  // für BVH sammeln
   root.traverse(o=>{ if(o.isMesh) bakeMeshToCollision(o); });
 
-  // BBox-Helper
   const helper = new THREE.Box3Helper(new THREE.Box3().setFromObject(root), DEBUG_COLORS.bbox);
   helper.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
   debugStatic.add(helper);
@@ -225,18 +227,22 @@ function placeModelPlatform(modelDef, { position=new THREE.Vector3(), yaw=0, tar
   return { group, size: tmp.size.clone() };
 }
 
-/* ======= Fallback Box ======= */
+/* ======= Fallback Box (vergrößerte X/Z) ======= */
 function makeBoxPlatform(w=4, h=0.3, d=2, pos=new THREE.Vector3(), yaw=0){
+  const W = w * PLATFORM_SIZE_MULT;
+  const D = d * PLATFORM_SIZE_MULT;
+  const H = KEEP_Y_SCALE ? h : h * PLATFORM_SIZE_MULT;
+
   const group=new THREE.Group(); group.position.copy(pos); group.rotation.y=yaw;
-  const mesh=new THREE.Mesh(new THREE.BoxGeometry(w,h,d), new THREE.MeshStandardMaterial({ color:0xCFE6FF, roughness:0.9, metalness:0.05 }));
-  mesh.castShadow=true; mesh.receiveShadow=true; mesh.position.y=h*0.5; group.add(mesh); scene.add(group);
+  const mesh=new THREE.Mesh(new THREE.BoxGeometry(W,H,D), new THREE.MeshStandardMaterial({ color:0xCFE6FF, roughness:0.9, metalness:0.05 }));
+  mesh.castShadow=true; mesh.receiveShadow=true; mesh.position.y=H*0.5; group.add(mesh); scene.add(group);
   bakeMeshToCollision(mesh);
 
   const helper = new THREE.Box3Helper(new THREE.Box3().setFromObject(mesh), DEBUG_COLORS.bbox);
   helper.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
   debugStatic.add(helper);
 
-  return { group, size:new THREE.Vector3(w,h,d) };
+  return { group, size:new THREE.Vector3(W,H,D) };
 }
 
 /* ======= Boden ======= */
@@ -248,14 +254,12 @@ function makeGround(){
   groundCol.position.y = -0.2; scene.add(groundCol);
   bakeMeshToCollision(groundCol);
 
-  // Kanten (sichtbar)
   const eg = new THREE.EdgesGeometry(groundCol.geometry);
   const lines = new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color:DEBUG_COLORS.groundEdge }));
   lines.matrixAutoUpdate=false; lines.applyMatrix4(groundCol.matrixWorld);
   lines.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
   debugStatic.add(lines);
 
-  // Deko
   const deco = new THREE.Group(); deco.position.y = 0.001; scene.add(deco);
   for(let i=0;i<120;i++){
     const w=Math.random()*0.02+0.006, l=Math.random()*6+1.5;
@@ -265,32 +269,44 @@ function makeGround(){
   }
 }
 
-/* ======= Weltbau ======= */
+/* ======= Weltbau (Spiralpfad) ======= */
 async function makeITWorld(modelPack){
   function select(cats, scaleHint){
     const cat = cats[0] || "generic";
     const w = (TARGET_WIDTH_BY_CAT[cat] || TARGET_WIDTH_BY_CAT.generic) * (scaleHint||1);
     let mdl=null; try{ mdl = pickModel(modelPack, cats); }catch(e){}
-    if(!mdl) return { model:null, size:new THREE.Vector3(w,0.3,Math.max(1.2,w*0.6)), targetW:w };
-    return { model:mdl, size:scaledSizeFor(mdl,w), targetW:w };
+    if(!mdl){
+      const base = new THREE.Vector3(w, 0.3, Math.max(1.2, w*0.6));
+      const size = new THREE.Vector3(
+        base.x * PLATFORM_SIZE_MULT,
+        KEEP_Y_SCALE ? base.y : base.y * PLATFORM_SIZE_MULT,
+        base.z * PLATFORM_SIZE_MULT
+      );
+      return { model:null, size, targetW:w };
+    }
+    const est = scaledSizeFor(mdl, w);
+    const size = new THREE.Vector3(
+      est.x * PLATFORM_SIZE_MULT,
+      KEEP_Y_SCALE ? est.y : est.y * PLATFORM_SIZE_MULT,
+      est.z * PLATFORM_SIZE_MULT
+    );
+    return { model:mdl, size, targetW:w };
   }
   function place(sel, pos, yaw){
     if(sel.model) return placeModelPlatform(sel.model, { position:pos, yaw:yaw||0, targetWidth:sel.targetW });
-    return makeBoxPlatform(sel.size.x, Math.max(0.25, sel.size.y), sel.size.z, pos, yaw||0);
+    return makeBoxPlatform(sel.size.x/PLATFORM_SIZE_MULT, sel.size.y/(KEEP_Y_SCALE?1:PLATFORM_SIZE_MULT), sel.size.z/PLATFORM_SIZE_MULT, pos, yaw||0);
   }
 
-  // Start
-  const startSel = select(["keyboard","desk","laptop","generic"], 1.25);
+  const startSel = select(["keyboard","desk","laptop","generic"], 1.25 * START_SIZE_MULT);
   const startRes = place(startSel, new THREE.Vector3(0,0.2,0), 0);
   checkpoints.push({ pos: new THREE.Vector3(0, 1.4, 0) });
 
-  // Spiral
   const stepsTotal=50, easySteps=5;
   const riseEasy=0.9, riseNorm=1.3, gapEasy=0.9, gapNorm=1.15, turnPerStep=Math.PI/7;
   const catSeq = [
     ["keyboard","laptop","monitor"], ["server","computer","printer"], ["desk","chair","monitor"],
     ["laptop","keyboard","monitor"], ["computer","mouse","phone"], ["server","printer","computer"],
-    ["chair","desk","headphones"],
+    ["chair","desk","headphones"]
   ];
 
   let angle=0, prevCenter=startRes.group.position.clone(), prevSize=startRes.size.clone();
@@ -323,7 +339,7 @@ function buildWorldCollision(){
     return;
   }
   const merged = mergeGeometries(_collisionGeoms, false);
-  merged.computeBoundsTree(); // <- baut BVH
+  merged.computeBoundsTree(); // BVH
   if(worldCollisionMesh){
     scene.remove(worldCollisionMesh);
     if(worldCollisionMesh.geometry && worldCollisionMesh.geometry.dispose) worldCollisionMesh.geometry.dispose();
@@ -339,23 +355,114 @@ function buildWorldCollision(){
   }
 }
 
+/* ======= Mathe-Helper: Segment↔Segment nächste Punkte ======= */
+const _u = new THREE.Vector3(), _v = new THREE.Vector3(), _w = new THREE.Vector3();
+const _c1 = new THREE.Vector3(), _c2 = new THREE.Vector3();
+function closestPointsSegmentSegment(p1,q1,p2,q2, out1, out2){
+  _u.subVectors(q1, p1);
+  _v.subVectors(q2, p2);
+  _w.subVectors(p1, p2);
+
+  const a = _u.dot(_u);
+  const b = _u.dot(_v);
+  const c = _v.dot(_v);
+  const d = _u.dot(_w);
+  const e = _v.dot(_w);
+
+  const D = a*c - b*b;
+  let sc, sN, sD = D;
+  let tc, tN, tD = D;
+
+  const EPS = 1e-9;
+
+  if (D < EPS){
+    sN = 0.0; sD = 1.0; tN = e; tD = c;
+  } else {
+    sN = (b*e - c*d);
+    tN = (a*e - b*d);
+    if (sN < 0){ sN = 0; tN = e; tD = c; }
+    else if (sN > sD){ sN = sD; tN = e + b; tD = c; }
+  }
+
+  if (tN < 0){
+    tN = 0;
+    if (-d < 0) sc = 0;
+    else if (-d > a) sc = 1;
+    else { sc = -d / a; }
+  } else if (tN > tD){
+    tN = tD;
+    const tmp = (-d + b);
+    if (tmp < 0) sc = 0;
+    else if (tmp > a) sc = 1;
+    else { sc = tmp / a; }
+  } else {
+    sc = (Math.abs(sD) < EPS ? 0 : sN / sD);
+  }
+  tc = (Math.abs(tD) < EPS ? 0 : tN / tD);
+
+  out1.copy(_u).multiplyScalar(sc).add(p1);
+  out2.copy(_v).multiplyScalar(tc).add(p2);
+  return out1.distanceTo(out2);
+}
+
+/* ======= Exakt: Segment ↔ Dreieck (nächste Punkte) ======= */
+const _tri = new THREE.Triangle();
+const _nrm = new THREE.Vector3();
+const _tmpP = new THREE.Vector3();
+const _tmpQ = new THREE.Vector3();
+// FIX: fehlende temporäre Ausgaben
+const _pTri = new THREE.Vector3();
+const _pSeg = new THREE.Vector3();
+
+function segmentTriangleClosestPoints(segStart, segEnd, a, b, c, outTri, outSeg){
+  _tri.set(a,b,c);
+  _tri.getNormal(_nrm).normalize();
+
+  const da = _nrm.dot(_tmpP.copy(segStart).sub(a));
+  const db = _nrm.dot(_tmpQ.copy(segEnd).sub(a));
+
+  const dir = _tmpQ.copy(segEnd).sub(segStart);
+
+  let minDistSq = Infinity;
+
+  if (da*db <= 0){
+    const t = da / (da - db);
+    const p = _tmpP.copy(segStart).addScaledVector(dir, THREE.MathUtils.clamp(t,0,1));
+    if (_tri.containsPoint(p)){
+      outTri.copy(p);
+      outSeg.copy(p);
+      return 0.0;
+    }
+  }
+
+  const qa = _tri.closestPointToPoint(segStart, _tmpQ);
+  let dSq = segStart.distanceToSquared(qa);
+  if (dSq < minDistSq){ minDistSq = dSq; outTri.copy(qa); outSeg.copy(segStart); }
+
+  const qb = _tri.closestPointToPoint(segEnd, _tmpQ);
+  dSq = segEnd.distanceToSquared(qb);
+  if (dSq < minDistSq){ minDistSq = dSq; outTri.copy(qb); outSeg.copy(segEnd); }
+
+  let e1 = a, e2 = b;
+  dSq = closestPointsSegmentSegment(segStart, segEnd, e1, e2, _c1, _c2)**2;
+  if (dSq < minDistSq){ minDistSq = dSq; outSeg.copy(_c1); outTri.copy(_c2); }
+
+  e1 = b; e2 = c;
+  dSq = closestPointsSegmentSegment(segStart, segEnd, e1, e2, _c1, _c2)**2;
+  if (dSq < minDistSq){ minDistSq = dSq; outSeg.copy(_c1); outTri.copy(_c2); }
+
+  e1 = c; e2 = a;
+  dSq = closestPointsSegmentSegment(segStart, segEnd, e1, e2, _c1, _c2)**2;
+  if (dSq < minDistSq){ minDistSq = dSq; outSeg.copy(_c1); outTri.copy(_c2); }
+
+  return Math.sqrt(minDistSq);
+}
+
 /* ======= Capsule ↔ BVH Kollision ======= */
 const _capsuleSphere = new THREE.Sphere();
 const _capsuleCenter = new THREE.Vector3();
 const _tempMatrix = new THREE.Matrix4();
 const _tempNormal = new THREE.Vector3();
-const _pTri = new THREE.Vector3();
-const _pSeg = new THREE.Vector3();
-
-function closestPointOnTriToSegment(a,b,c, segStart, segEnd, outTri, outSeg){
-  const tri = new THREE.Triangle(a,b,c);
-  const mid = outSeg.copy(segStart).add(segEnd).multiplyScalar(0.5);
-  tri.closestPointToPoint(mid, outTri);
-  const segDir = outSeg.copy(segEnd).sub(segStart);
-  const t = THREE.MathUtils.clamp(outTri.clone().sub(segStart).dot(segDir) / Math.max(segDir.lengthSq(),1e-8), 0, 1);
-  outSeg.copy(segStart).addScaledVector(segDir, t);
-  return outSeg.distanceTo(outTri);
-}
 
 function collideCapsuleWithWorld(capsule, velocity){
   if(!worldCollisionMesh) return { collided:false, onGround:false };
@@ -369,36 +476,41 @@ function collideCapsuleWithWorld(capsule, velocity){
   const segLen = capsule.start.distanceTo(capsule.end);
   _capsuleCenter.copy(capsule.start).add(capsule.end).multiplyScalar(0.5);
   _capsuleSphere.center.copy(_capsuleCenter);
-  _capsuleSphere.radius = capsule.radius + 0.5*segLen;
+  _capsuleSphere.radius = capsule.radius + 0.5*segLen + SKIN_WIDTH;
+
+  const rEff = SETTINGS.playerRadius - SKIN_WIDTH;
 
   const bvh = geom.boundsTree;
-  for(let iter=0; iter<3; iter++){
+
+  for(let iter=0; iter<MAX_RESOLVE_ITERS; iter++){
+    const contacts = [];
     let any = false;
+
     bvh.shapecast({
-      intersectsBounds: function(box){
-        return box.intersectsSphere(_capsuleSphere);
-      },
-      intersectsTriangle: function(tri){
+      intersectsBounds: (box)=> box.intersectsSphere(_capsuleSphere),
+      intersectsTriangle: (tri)=>{
         const a = new THREE.Vector3().copy(tri.a).applyMatrix4(_tempMatrix);
         const b = new THREE.Vector3().copy(tri.b).applyMatrix4(_tempMatrix);
         const c = new THREE.Vector3().copy(tri.c).applyMatrix4(_tempMatrix);
-        const normal = _tempNormal.copy(new THREE.Triangle(a,b,c).getNormal(new THREE.Vector3()));
 
-        const dist = closestPointOnTriToSegment(a,b,c, capsule.start, capsule.end, _pTri, _pSeg);
-        if (dist < SETTINGS.playerRadius - 1e-6) {
-          const depth = (SETTINGS.playerRadius - dist);
-          const dir = _pSeg.clone().sub(_pTri).normalize();
+        const dist = segmentTriangleClosestPoints(capsule.start, capsule.end, a, b, c, _pTri, _pSeg);
+
+        if (dist < rEff){
+          _tempNormal.copy(new THREE.Triangle(a,b,c).getNormal(new THREE.Vector3())).normalize();
+
+          const depth = (rEff - dist) + SKIN_WIDTH;
+          const dir = _pSeg.clone().sub(_pTri);
+          const len = Math.max(dir.length(), 1e-8);
+          dir.divideScalar(len);
 
           capsule.start.addScaledVector(dir, depth);
           capsule.end.addScaledVector(dir, depth);
 
-          const vn = velocity.dot(normal);
-          if (vn < 0) velocity.addScaledVector(normal, -vn);
-
-          if (normal.y > WALKABLE_NORMAL_Y) onGround = true;
-
           _capsuleCenter.copy(capsule.start).add(capsule.end).multiplyScalar(0.5);
           _capsuleSphere.center.copy(_capsuleCenter);
+
+          contacts.push(_tempNormal.clone());
+          if (_tempNormal.y > WALKABLE_NORMAL_Y) onGround = true;
 
           collided = true;
           any = true;
@@ -406,13 +518,56 @@ function collideCapsuleWithWorld(capsule, velocity){
         return false;
       }
     });
+
+    for (let i=0;i<contacts.length;i++){
+      const n = contacts[i];
+      const vn = velocity.dot(n);
+      if (vn < 0) velocity.addScaledVector(n, -vn);
+    }
+
     if(!any) break;
   }
 
   return { collided, onGround };
 }
 
-/* ======= Player (Capsule) ======= */
+/* ======= Ground Snap ======= */
+function snapCapsuleToGround(capsule, maxDist=GROUND_SNAP_MAX){
+  if(!worldCollisionMesh) return false;
+
+  const center = new THREE.Vector3().addVectors(capsule.start, capsule.end).multiplyScalar(0.5);
+  const halfSeg = capsule.end.clone().sub(capsule.start).length() * 0.5;
+
+  const rayOrigin = center.clone(); rayOrigin.y += Math.min(0.3, halfSeg);
+  const rayDir = new THREE.Vector3(0,-1,0);
+  const ray = new THREE.Raycaster(rayOrigin, rayDir, 0, halfSeg + maxDist + capsule.radius + 0.05);
+
+  const hits = ray.intersectObject(worldCollisionMesh, true);
+  if(!hits.length) return false;
+
+  for (let i=0;i<hits.length;i++){
+    const h = hits[i];
+    if (!h.face) continue;
+
+    const nMat = new THREE.Matrix3().getNormalMatrix(h.object.matrixWorld);
+    const n = h.face.normal.clone().applyMatrix3(nMat).normalize();
+
+    if (n.y > WALKABLE_NORMAL_Y){
+      const bottomY = capsule.start.y;
+      const desiredBottomY = h.point.y + capsule.radius + SKIN_WIDTH;
+      const deltaY = desiredBottomY - bottomY;
+      if (deltaY >= -0.02 && deltaY <= (maxDist + 0.02)){
+        capsule.start.y += deltaY;
+        capsule.end.y   += deltaY;
+        return true;
+      }
+      break;
+    }
+  }
+  return false;
+}
+
+/* ======= Player (Capsule + Animation State Machine) ======= */
 class PlayerController{
   constructor(){
     this.group=new THREE.Group(); scene.add(this.group);
@@ -430,10 +585,87 @@ class PlayerController{
     this.capsuleHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_CAPSULE;
     debugStatic.add(this.capsuleHelper);
 
-    this.onGround=false; this.heading=0;
-    this.model=null; this.mixer=null; this.actions={}; this.currentAction=null;
+    this.heading=0;
+    this.model=null; this.mixer=null;
+    this.actions = {};
+    this.anim = { idle:null, move:null, jumpStart:null, fall:null, land:null, current:null };
+    this._justJumped=false;
+    this.onGround=false; this.wasOnGround=false;
+    this._landLock=0;
 
     this._loadOrMakeCapsule();
+  }
+
+  _findClip(clips, names){
+    function norm(s){ return s.toLowerCase().replace(/[\s_]+/g,""); }
+    const list = clips || [];
+    for(let i=0;i<names.length;i++){
+      const want = norm(names[i]);
+      for(let j=0;j<list.length;j++){
+        const have = norm(list[j].name||"");
+        if(have.indexOf(want)!==-1) return list[j];
+      }
+    }
+    return null;
+  }
+
+  _setupAnimations(gltfAnimations, root){
+    if(!gltfAnimations || !gltfAnimations.length) return;
+
+    this.mixer = new THREE.AnimationMixer(root);
+    const idleClip  = this._findClip(gltfAnimations, ["idle","a_idle","idle01","idle_01","rest","stand"]);
+    const walkClip  = this._findClip(gltfAnimations, ["walk","move","locomotion"]);
+    const runClip   = this._findClip(gltfAnimations, ["run","jog"]);
+    const jumpClip  = this._findClip(gltfAnimations, ["jump_start","jumpstart","jump","takeoff"]);
+    const fallClip  = this._findClip(gltfAnimations, ["fall","falling","air","jump_loop","in_air"]);
+    const landClip  = this._findClip(gltfAnimations, ["land","landing","jump_end","jumpend"]);
+
+    if(idleClip){  this.actions.idle  = this.mixer.clipAction(idleClip);  this.actions.idle.setLoop(THREE.LoopRepeat); }
+    if(walkClip){  this.actions.walk  = this.mixer.clipAction(walkClip);  this.actions.walk.setLoop(THREE.LoopRepeat); }
+    if(runClip){   this.actions.run   = this.mixer.clipAction(runClip);   this.actions.run.setLoop(THREE.LoopRepeat); }
+    if(jumpClip){  this.actions.jump  = this.mixer.clipAction(jumpClip);  this.actions.jump.setLoop(THREE.LoopOnce); this.actions.jump.clampWhenFinished = true; }
+    if(fallClip){  this.actions.fall  = this.mixer.clipAction(fallClip);  this.actions.fall.setLoop(THREE.LoopRepeat); }
+    if(landClip){  this.actions.land  = this.mixer.clipAction(landClip);  this.actions.land.setLoop(THREE.LoopOnce); this.actions.land.clampWhenFinished = true; }
+
+    this.anim.idle      = this.actions.idle || this.actions.walk || this.actions.run;
+    this.anim.move      = this.actions.run  || this.actions.walk || this.actions.idle;
+    this.anim.jumpStart = this.actions.jump || null;
+    this.anim.fall      = this.actions.fall || this.actions.jump || this.anim.move;
+    this.anim.land      = this.actions.land || null;
+
+    this._playAction(this.anim.idle, 0.0);
+  }
+
+  _playAction(action, fade){
+    if(!action) return;
+    if(this.anim.current === action) return;
+    fade = (fade==null)?0.2:fade;
+    action.reset().play();
+    if(this.anim.current){
+      this.anim.current.crossFadeTo(action, fade, false);
+    }
+    this.anim.current = action;
+  }
+
+  _playOneShot(action, fade, onDone){
+    if(!action){ onDone && onDone(); return; }
+    fade = (fade==null)?0.12:fade;
+    action.reset();
+    action.setLoop(THREE.LoopOnce);
+    action.clampWhenFinished = true;
+    action.play();
+    if(this.anim.current && this.anim.current!==action){
+      this.anim.current.crossFadeTo(action, fade, false);
+    }
+    this.anim.current = action;
+
+    const handler = (e)=>{
+      if(e.action===action){
+        this.mixer.removeEventListener("finished", handler);
+        onDone && onDone();
+      }
+    };
+    this.mixer.addEventListener("finished", handler);
   }
 
   async _loadOrMakeCapsule(){
@@ -453,14 +685,7 @@ class PlayerController{
           }
         }
       });
-      if(g.animations && g.animations.length){
-        this.mixer=new THREE.AnimationMixer(root);
-        for(let i=0;i<g.animations.length;i++){
-          const c=g.animations[i];
-          this.actions[c.name.toLowerCase()] = this.mixer.clipAction(c);
-        }
-        this._setActionFromList(["idle","rest","stand","idle_01","a_idle","idlepose"],0);
-      }
+
       root.updateMatrixWorld(true);
       const tmp = computeBBox(root);
       const s = (this.height*0.92) / Math.max(tmp.size.y, 0.01);
@@ -468,7 +693,9 @@ class PlayerController{
       const box2 = new THREE.Box3().setFromObject(root);
       const center = new THREE.Vector3(); box2.getCenter(center);
       root.position.sub(center);
+
       this.model=root; this.group.add(root);
+      this._setupAnimations(g.animations||[], root);
       setStatus("Ready! Businessman geladen ✨");
     }catch(e){
       console.error("GLB Load Error (Character):", e);
@@ -493,40 +720,13 @@ class PlayerController{
     this.group.position.copy(center);
     this.capsuleHelper.position.copy(center);
     this.velocity.set(0,0,0);
-    this.onGround=false;
-  }
-
-  _setAction(name, fade){
-    if(!this.mixer || !this.actions[name] || this.currentAction===name) return;
-    const next=this.actions[name]; if(!fade) fade=0.2;
-    next.enabled=true; next.setLoop(THREE.LoopRepeat);
-    if(this.currentAction && this.actions[this.currentAction]){
-      next.reset().play();
-      this.actions[this.currentAction].crossFadeTo(next,fade,false);
-    } else next.reset().play();
-    this.currentAction=name;
-  }
-  _setActionFromList(list, fade){
-    for(let i=0;i<list.length;i++){ const n=list[i]; if(this.actions[n]){ this._setAction(n,fade); return; } }
-  }
-  _playJumpOnce(){
-    if(!this.mixer) return false;
-    const names=["jump","jumps","jump_start"];
-    let name=null; for(let i=0;i<names.length;i++){ if(this.actions[names[i]]){ name=names[i]; break; } }
-    if(!name) return false;
-    const base=this.currentAction;
-    const a=this.actions[name];
-    a.setLoop(THREE.LoopOnce); a.clampWhenFinished=true; a.reset().play();
-    if(base&&this.actions[base]) this.actions[base].crossFadeTo(a,0.1,false);
-    const onFinished=(e)=>{ if(e.action===a){ this._setAction(base||"idle",0.15); this.mixer.removeEventListener("finished",onFinished); } };
-    this.mixer.addEventListener("finished", onFinished);
-    return true;
+    this.onGround=false; this.wasOnGround=false;
+    this._landLock = 0;
   }
 
   get position(){ return this.group.position; }
 
   update(dt, camYaw){
-    // Eingaben
     const forward  = (keys.has("w") || keys.has("arrowup"));
     const backward = (keys.has("s") || keys.has("arrowdown"));
     const left     = (keys.has("a") || keys.has("arrowleft"));
@@ -542,67 +742,105 @@ class PlayerController{
     const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), camYaw);
     wish.applyQuaternion(q);
 
-    const speed=SETTINGS.moveSpeed*(sprint?SETTINGS.sprintMult:1);
-    const desired=new THREE.Vector3(wish.x*speed, this.velocity.y, wish.z*speed);
+    const speedTarget=SETTINGS.moveSpeed*(sprint?SETTINGS.sprintMult:1);
+    const desired=new THREE.Vector3(wish.x*speedTarget, this.velocity.y, wish.z*speedTarget);
 
-    // Dämpfung Boden/Luft
     const accel=this.onGround?22:10*SETTINGS.airControl;
     this.velocity.x=THREE.MathUtils.damp(this.velocity.x, desired.x, accel, dt);
     this.velocity.z=THREE.MathUtils.damp(this.velocity.z, desired.z, accel, dt);
 
-    // Schwerkraft + Terminal
     this.velocity.y -= SETTINGS.gravity*dt;
     if(this.velocity.y < TERMINAL_FALL_SPEED) this.velocity.y = TERMINAL_FALL_SPEED;
 
-    // Jump
     if(this.onGround && _pendingJump){
       this.velocity.y = SETTINGS.jumpSpeed;
-      this.onGround = false;
-      this._playJumpOnce();
+      this._justJumped = true;
     }
     _pendingJump = false;
 
-    // Substeps gegen Durchfallen
+    const dispLen = this.velocity.length() * dt;
+    const stepsBySpeed = Math.max(1, Math.ceil(dispLen / Math.max(0.001, MAX_DISP_PER_SUBSTEP)));
     const absVy = Math.abs(this.velocity.y);
     const estPen = absVy*dt;
     const maxPenPerStep = Math.max(SUBSTEP_PEN_TARGET, 0.075);
-    const steps = Math.max(1, Math.ceil(estPen / maxPenPerStep));
+    const stepsByPen = Math.max(1, Math.ceil(estPen / maxPenPerStep));
+    const steps = Math.max(stepsBySpeed, stepsByPen);
     const dtS = dt / steps;
 
     let onGroundAccum = false;
-
     for(let s=0; s<steps; s++){
-      // Bewegung anwenden
       const delta = this.velocity.clone().multiplyScalar(dtS);
       this.capsule.start.add(delta);
       this.capsule.end.add(delta);
 
-      // Kollision
       const res = collideCapsuleWithWorld(this.capsule, this.velocity);
       onGroundAccum = onGroundAccum || res.onGround;
     }
 
+    this.wasOnGround = this.onGround;
     this.onGround = onGroundAccum;
 
-    // Gruppe/Capsule-Helfer positionieren
+    if (!this.onGround && this.velocity.y <= 1.0){
+      if (snapCapsuleToGround(this.capsule, GROUND_SNAP_MAX)){
+        this.onGround = true;
+        if (this.velocity.y < 0) this.velocity.y = 0;
+      }
+    }
+
     const center = new THREE.Vector3().addVectors(this.capsule.start, this.capsule.end).multiplyScalar(0.5);
     this.group.position.copy(center);
     this.capsuleHelper.position.copy(center);
     this.capsuleHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_CAPSULE;
 
-    // Heading + Anim
     if(wish.lengthSq()>1e-4){
       const targetYaw=Math.atan2(wish.x,wish.z);
       this.heading=THREE.MathUtils.damp(this.heading,targetYaw,12,dt);
     }
     this.group.rotation.y=this.heading;
 
-    if(this.mixer) this.mixer.update(dt);
-    if(this.onGround){
-      const moving=(Math.abs(this.velocity.x)+Math.abs(this.velocity.z))>0.6;
-      if(moving) this._setActionFromList(["run","jog","walk"],0.15);
-      else       this._setActionFromList(["idle","rest","stand"],0.15);
+    if(this.mixer){
+      const hSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+      if(this.anim.move){
+        const base = SETTINGS.moveSpeed*1.0;
+        this.anim.move.timeScale = THREE.MathUtils.clamp(hSpeed / Math.max(0.01, base), 0.75, 1.5);
+      }
+
+      if(!this.wasOnGround && this.onGround){
+        this._landLock = 0.25;
+        if(this.anim.land){
+          this._playOneShot(this.anim.land, 0.08, ()=>{
+            this._landLock = 0;
+            if(hSpeed>0.5 && this.anim.move) this._playAction(this.anim.move, 0.12);
+            else if(this.anim.idle) this._playAction(this.anim.idle, 0.12);
+          });
+        } else {
+          if(hSpeed>0.5 && this.anim.move) this._playAction(this.anim.move, 0.12);
+          else if(this.anim.idle) this._playAction(this.anim.idle, 0.12);
+        }
+      } else if(this.wasOnGround && !this.onGround){
+        if(this._justJumped && this.anim.jumpStart){
+          this._playOneShot(this.anim.jumpStart, 0.08, ()=>{
+            if(!this.onGround && this.anim.fall) this._playAction(this.anim.fall, 0.06);
+          });
+        } else {
+          if(this.anim.fall) this._playAction(this.anim.fall, 0.06);
+        }
+      } else {
+        if(this.onGround){
+          if(this._landLock<=0){
+            if(hSpeed>0.6 && this.anim.move) this._playAction(this.anim.move, 0.12);
+            else if(this.anim.idle) this._playAction(this.anim.idle, 0.15);
+          }
+        } else {
+          if(this.anim.fall) this._playAction(this.anim.fall, 0.06);
+        }
+      }
+
+      if(this._landLock>0) this._landLock = Math.max(0, this._landLock - dt);
+      this.mixer.update(dt);
     }
+
+    this._justJumped = false;
 
     if(this.group.position.y < SETTINGS.fallY) this.respawn();
   }
@@ -634,10 +872,10 @@ window.addEventListener("keydown",e=>{
   if(k===" "||k==="space") _pendingJump=true;
   if(k==="r") player?.respawn();
 
-  // Debug-Toggles
   if(k==="f1"){ DEBUG.ENABLED=!DEBUG.ENABLED; }
   if(k==="f2"){ DEBUG.SHOW_STATIC=!DEBUG.SHOW_STATIC; }
-  if(k==="f3"){ DEBUG.SHOW_DYNAMIC=!DEBUG.SHOW_DYNAMIC; }
+  if(k==="f3"){ DEBUG.SHOW_BVH=!DEBUG.SHOW_BVH; if(worldBVHHelper) worldBVHHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC && DEBUG.SHOW_BVH; }
+  if(k==="f4"){ DEBUG.SHOW_CAPSULE=!DEBUG.SHOW_CAPSULE; }
 });
 window.addEventListener("keyup",e=>{ keys.delete(e.key.toLowerCase()); });
 
@@ -652,28 +890,7 @@ makeGround();
 setStatus("Lade Plattform-Assets…");
 const MODEL_PACK = await loadModelPack(MODEL_PACK_PATHS);
 await makeITWorld(MODEL_PACK);
-
-// BVH aufbauen (merge + computeBoundsTree)
-(function buildBVH(){
-  if(worldCollisionMesh){
-    scene.remove(worldCollisionMesh);
-    if(worldCollisionMesh.geometry && worldCollisionMesh.geometry.dispose) worldCollisionMesh.geometry.dispose();
-    worldCollisionMesh=null;
-  }
-  if(_collisionGeoms.length){
-    const merged = mergeGeometries(_collisionGeoms, false);
-    merged.computeBoundsTree();
-    worldCollisionMesh = new THREE.Mesh(merged, new THREE.MeshBasicMaterial({ visible:false }));
-    scene.add(worldCollisionMesh);
-
-    if(DEBUG.SHOW_BVH){
-      if(worldBVHHelper) scene.remove(worldBVHHelper);
-      worldBVHHelper = new MeshBVHHelper(worldCollisionMesh, 12);
-      worldBVHHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
-      scene.add(worldBVHHelper);
-    }
-  }
-})();
+buildWorldCollision();
 
 const player = new PlayerController();
 if(checkpoints.length){ setStatus("Lade Charakter…"); }
@@ -707,9 +924,9 @@ renderer.setAnimationLoop(()=>{
   updateCamera(dt);
   updateLighting(dt);
 
-  // Debug Sichtbarkeit aktuell halten
   debugStatic.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
   if(worldBVHHelper) worldBVHHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC && DEBUG.SHOW_BVH;
+  if(player && player.capsuleHelper) player.capsuleHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_CAPSULE;
 
   renderer.render(scene, camera);
 });
