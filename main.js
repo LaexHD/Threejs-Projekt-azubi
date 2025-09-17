@@ -475,7 +475,7 @@ const roughCheckpointAbove = (res, offsetY=0.1) => {
 };
 
 async function makeITWorld(modelPack){
-  const maxHorizontalReach = 2.0;
+  const maxHorizontalReach = 4.0;
   const maxVerticalRise = 1.2;
 
   const select = (cats, scaleHint=1) => {
