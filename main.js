@@ -209,6 +209,54 @@ function setupLoaders(){
 }
 
 
+// ============================= Skybox ======================================
+
+const SKYBOX_FILES = [
+  "Daylight Box_Right.bmp",  // +X
+  "Daylight Box_Left.bmp",   // -X
+  "Daylight Box_Top.bmp",    // +Y
+  "Daylight Box_Bottom.bmp", // -Y
+  "Daylight Box_Front.bmp",  // +Z
+  "Daylight Box_Back.bmp"    // -Z
+]; 
+
+async function loadSkybox(){
+  return new Promise((resolve)=>{
+    try{
+      const loader = new THREE.CubeTextureLoader(loadingManager);
+      // Pfade relativ zum HTML/Script – keine Unterordner
+      loader.load(
+        SKYBOX_FILES,
+        (cube)=>{
+          cube.colorSpace = THREE.SRGBColorSpace;
+          scene.background = cube;
+
+          // Environment-Map (IBL) aus Cubemap erzeugen
+          const pmrem = new THREE.PMREMGenerator(renderer);
+          pmrem.compileCubemapShader();
+          const envTex = pmrem.fromCubemap(cube).texture;
+          scene.environment = envTex;
+          pmrem.dispose();
+
+          // Option: Nebel entfernen, damit die Skybox klar sichtbar ist
+          scene.fog = null;
+
+          resolve(true);
+        },
+        undefined,
+        (_err)=>{
+          console.warn("Skybox konnte nicht geladen werden – fallback auf Farb-Himmel.");
+          resolve(false);
+        }
+      );
+    }catch(e){
+      console.warn("Skybox-Fehler:", e);
+      resolve(false);
+    }
+  });
+}
+
+
 // ============================= Game State ==================================
 const clock = new THREE.Clock();
 const keys = new Set();
@@ -430,35 +478,31 @@ async function makeITWorld(modelPack){
   let angle = 0, prevCenter = startRes.group.position.clone(), prevSize = startRes.size.clone();
 
   for(let i=0; i<stepsTotal; i++){
-    // Schwierigkeit steigt: Lücken werden größer, Plattformen kleiner
     const difficulty = i / stepsTotal;
     const gap = THREE.MathUtils.lerp(0.9, 1.8, difficulty) * (0.8 + Math.random()*0.4);
     const rise = THREE.MathUtils.lerp(0.9, 2.0, difficulty) * (0.9 + Math.random()*0.3);
-    const scaleHint = THREE.MathUtils.lerp(1.0, 0.7, difficulty); // Plattformen werden kleiner
+    const scaleHint = THREE.MathUtils.lerp(1.0, 0.7, difficulty);
 
-    // Plattformwahl zufällig aus allen Kategorien
     const allCats = ["keyboard","laptop","monitor","server","computer","printer","desk","chair","headphones","mouse","phone"];
     const sel = select(allCats, scaleHint);
 
-    angle += (Math.PI/7) * (0.9 + Math.random()*0.2); // leichte Variation der Drehung
+    angle += (Math.PI/7) * (0.9 + Math.random()*0.2);
     const distCenters = diagRadius(prevSize) + diagRadius(sel.size) + gap;
     const dir = new THREE.Vector3(Math.cos(angle),0,Math.sin(angle));
     const nextCenter = prevCenter.clone().addScaledVector(dir, distCenters);
     nextCenter.y += rise;
 
-    const yaw = angle + Math.PI + (Math.random()*0.2 - 0.1); // leichte zufällige Drehung
+    const yaw = angle + Math.PI + (Math.random()*0.2 - 0.1);
     const res = place(sel, nextCenter, yaw);
 
-    // Checkpoints: 30% Chance auf Plattform selbst, sonst über Plattform
     if(Math.random() < 0.3){
       const cp = nextCenter.clone();
-      cp.y += sel.size.y * (0.5 + Math.random()*0.5); // irgendwo auf der Plattform
+      cp.y += sel.size.y * (0.5 + Math.random()*0.5);
       checkpoints.push({ pos: cp });
     } else if(i % 7 === 6){
       checkpoints.push({ pos: roughCheckpointAbove(res) });
     }
 
-    // Optionale Lichtpunkte über Checkpoints
     if(Math.random() < 0.2){
       const beacon = new THREE.PointLight(0x66ccff, 1.2, 10);
       const cpLight = roughCheckpointAbove(res, 0.3);
@@ -470,7 +514,6 @@ async function makeITWorld(modelPack){
     prevSize = res.size.clone();
   }
 }
-
 
 
 // ============================= Platforms / Helpers =========================
@@ -580,7 +623,7 @@ function closestPointsSegmentSegment(p1,q1,p2,q2, out1, out2){
 
   tc = (Math.abs(tD) < EPS ? 0 : tN / tD);
   out1.copy(_u).multiplyScalar(sc).add(p1);
-  out2.copy(_v).multiplyScalar(tc).add(p2);
+  out2.copy(_v).multiplyScalar(tc);
   return out1.distanceTo(out2);
 }
 
@@ -944,7 +987,6 @@ update(dt, camYaw){
       // Double-Jump: immer additiver Kick
       const base  = SETTINGS.jumpSpeed * SETTINGS.doubleJumpMult; // Grundimpuls
       const carry = Math.max(this.velocity.y, 0) * 0.25;          // etwas Aufwärtsgeschw. mitnehmen
-      // additiv + Mindestschub, reduziert „toter“ zweiter Sprung
       this.velocity.y = Math.max(this.velocity.y + base * 0.85, base + carry);
 
       this._justJumped = true;
@@ -1066,6 +1108,10 @@ async function startGame(){
   setupLoaders();
   setScreen("loading");
   setStatus("Initialisiere…");
+
+  // === Skybox laden (Dateien im selben Ordner) ===
+  setStatus("Lade Skybox…");
+  await loadSkybox();
 
   makeGround();
   setStatus("Lade Plattform-Assets…");
