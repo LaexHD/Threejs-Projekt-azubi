@@ -55,7 +55,10 @@ const INPUT = {
 
 function setScreen(name){
   body.setAttribute("data-screen", name);
-  if (name === "game") UI.canvas?.focus({ preventScroll: true });
+  if (name === "game") {
+    UI.canvas?.focus({ preventScroll: true });
+    ensurePointerLock(); // Maus beim Wechsel ins Spiel sperren
+  }
 }
 function openSubPanel(name){
   UI.menuSub?.classList.remove("hidden");
@@ -92,7 +95,7 @@ UI.btnBack2   ?.addEventListener("click", closeSubPanel);
 
 // Pause-Buttons
 UI.btnResume  ?.addEventListener("click", () => setPaused(false));
-UI.btnRestart ?.addEventListener("click", () => { setPaused(false); player?.respawn(); });
+UI.btnRestart ?.addEventListener("click", () => { setPaused(false); player?.respawn(); ensurePointerLock(); });
 UI.btnQuit    ?.addEventListener("click", () => { setPaused(true); setScreen("menu"); });
 
 // ESC toggelt Pause
@@ -100,8 +103,33 @@ window.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   const s = body.getAttribute("data-screen");
   if (s === "game")  { setPaused(true);  setScreen("paused"); }
-  if (s === "paused"){ setPaused(false); setScreen("game");   }
+  if (s === "paused"){ setPaused(false); setScreen("game"); ensurePointerLock(); }
 });
+
+
+// ============================= Pointer Lock =================================
+let pointerLocked = false;
+let lastX = null, lastY = null;
+
+function ensurePointerLock(){
+  if (!UI.canvas) return;
+  const req = UI.canvas.requestPointerLock
+           || UI.canvas.mozRequestPointerLock
+           || UI.canvas.webkitRequestPointerLock;
+  if (document.pointerLockElement !== UI.canvas && req) {
+    try { req.call(UI.canvas, { unadjustedMovement: true }); }
+    catch { req.call(UI.canvas); }
+  }
+}
+
+document.addEventListener("pointerlockchange", () => {
+  pointerLocked = (document.pointerLockElement === UI.canvas);
+  if (UI.canvas) UI.canvas.style.cursor = pointerLocked ? "none" : "";
+  lastX = null; lastY = null;
+});
+document.addEventListener("pointerlockerror", (e) => console.warn("PointerLock error:", e));
+// Ein Klick ins Canvas holt den Lock zurück (falls verloren)
+UI.canvas?.addEventListener("click", ensurePointerLock);
 
 
 // ============================= Config / Debug ==============================
@@ -210,7 +238,6 @@ function setupLoaders(){
 
 
 // ============================= Skybox ======================================
-
 const SKYBOX_FILES = [
   "Daylight Box_Right.bmp",  // +X
   "Daylight Box_Left.bmp",   // -X
@@ -218,27 +245,26 @@ const SKYBOX_FILES = [
   "Daylight Box_Bottom.bmp", // -Y
   "Daylight Box_Front.bmp",  // +Z
   "Daylight Box_Back.bmp"    // -Z
-]; 
+];
 
 async function loadSkybox(){
   return new Promise((resolve)=>{
     try{
       const loader = new THREE.CubeTextureLoader(loadingManager);
-      // Pfade relativ zum HTML/Script – keine Unterordner
       loader.load(
         SKYBOX_FILES,
         (cube)=>{
           cube.colorSpace = THREE.SRGBColorSpace;
           scene.background = cube;
 
-          // Environment-Map (IBL) aus Cubemap erzeugen
+          // Environment-Map (IBL) aus Cubemap
           const pmrem = new THREE.PMREMGenerator(renderer);
           pmrem.compileCubemapShader();
           const envTex = pmrem.fromCubemap(cube).texture;
           scene.environment = envTex;
           pmrem.dispose();
 
-          // Option: Nebel entfernen, damit die Skybox klar sichtbar ist
+          // Nebel optional aus, damit die Box nicht verwaschen wirkt
           scene.fog = null;
 
           resolve(true);
@@ -357,9 +383,9 @@ function bakeMeshToCollision(mesh){
 
 // ============================= Boden: Inselwelt ============================
 function makeGround(){
-  const R_TOP = 60;   // begehbarer Radius
-  const R_BASE = 80;  // Fuß der Insel
-  const H     = 16;   // Höhe nach unten
+  const R_TOP = 60;
+  const R_BASE = 80;
+  const H     = 16;
   const SEG   = 64;
 
   // Wasser (Deko)
@@ -422,10 +448,9 @@ function makeGround(){
     rock.rotation.y = Math.random()*Math.PI*2;
     rock.castShadow = rock.receiveShadow = true;
     rocks.add(rock);
-    // -> Kollision gewünscht? bakeMeshToCollision(rock);
   }
 
-  // „Büsche“ als kleine Kegel (Optik)
+  // „Büsche“ (Optik)
   const bushes = new THREE.Group(); bushes.position.y = 0; scene.add(bushes);
   for(let i=0;i<18;i++){
     const p = rndInDisk(R_TOP - 8);
@@ -438,7 +463,6 @@ function makeGround(){
     cone.rotation.y = Math.random()*Math.PI;
     cone.castShadow = cone.receiveShadow = true;
     bushes.add(cone);
-    // -> Kollision gewünscht? bakeMeshToCollision(cone);
   }
 }
 
@@ -451,8 +475,8 @@ const roughCheckpointAbove = (res, offsetY=0.1) => {
 };
 
 async function makeITWorld(modelPack){
-  const maxHorizontalReach = 2.0; // max. Distanz horizontal pro Schritt
-  const maxVerticalRise = 1.2;    // max. Höhe pro Sprung
+  const maxHorizontalReach = 2.0;
+  const maxVerticalRise = 1.2;
 
   const select = (cats, scaleHint=1) => {
     const cat = cats[Math.floor(Math.random() * cats.length)] || "generic";
@@ -473,7 +497,6 @@ async function makeITWorld(modelPack){
       ? placeModelPlatform(sel.model, { position: pos, yaw, targetWidth: sel.targetW })
       : makeBoxPlatform(sel.size.x/PLATFORM_SIZE_MULT, sel.size.y/(KEEP_Y_SCALE?1:PLATFORM_SIZE_MULT), sel.size.z/PLATFORM_SIZE_MULT, pos, yaw);
 
-    // Flache Objekte horizontal legen
     if(sel.size.y < sel.size.x*0.5 && sel.size.y < sel.size.z*0.5){
       res.group.rotation.x = -Math.PI/2;
     }
@@ -482,7 +505,7 @@ async function makeITWorld(modelPack){
     return res;
   };
 
-  // STARTPLATTFORM
+  // Start
   const startSel = select(["keyboard","desk","laptop","generic"], 1.25 * START_SIZE_MULT);
   const startRes = place(startSel, new THREE.Vector3(0,0.2,0));
   checkpoints.push({ pos: roughCheckpointAbove(startRes) });
@@ -494,11 +517,9 @@ async function makeITWorld(modelPack){
   for(let i=0;i<stepsTotal;i++){
     const difficulty = i/stepsTotal;
 
-    // horizontale Distanz innerhalb maxHorizontalReach, leicht steigende Schwierigkeit
     const baseGap = THREE.MathUtils.lerp(1.0, maxHorizontalReach*0.9, difficulty);
     const gap = baseGap * (0.9 + Math.random()*0.2);
 
-    // vertikaler Anstieg, max maxVerticalRise
     const baseRise = THREE.MathUtils.lerp(0.5, maxVerticalRise*0.9, difficulty);
     const rise = baseRise * (0.9 + Math.random()*0.2);
 
@@ -516,7 +537,6 @@ async function makeITWorld(modelPack){
     const yaw = angle + Math.PI + (Math.random()*0.1 - 0.05);
     const res = place(sel, nextCenter, yaw);
 
-    // Checkpoint: 10% Chance, auf Objekt, aufsteigend
     if(Math.random()<0.1){
       const cp = new THREE.Vector3();
       cp.x = THREE.MathUtils.lerp(res.bbox.min.x + 0.1, res.bbox.max.x - 0.1, Math.random());
@@ -526,7 +546,6 @@ async function makeITWorld(modelPack){
       checkpoints.push({ pos: cp });
       lastCheckpointY = cp.y;
 
-      // Flagge
       const flagGroup = new THREE.Group();
       flagGroup.position.copy(cp);
       const pole = new THREE.Mesh(
@@ -927,7 +946,7 @@ class PlayerController{
       );
       body.castShadow=body.receiveShadow=true;
       this.group.add(body);
-      setStatus("Ready (Fallback-Char). Prüfe Pfad/Kompression!");
+      setStatus("Ready (Fallback-Char). Prüfe Pfad/Kompression)!");
     }
 
     const cp = checkpoints[0]?.pos || new THREE.Vector3(0,1.4,0);
@@ -956,137 +975,132 @@ class PlayerController{
 
   get position(){ return this.group.position; }
 
-update(dt, camYaw){
-  // Eingabe → Bewegungswunsch (in Kamerarahmen)
-  const f = (keys.has("w") || keys.has("arrowup"));
-  const b = (keys.has("s") || keys.has("arrowdown"));
-  const l = (keys.has("a") || keys.has("arrowleft"));
-  const r = (keys.has("d") || keys.has("arrowright"));
-  const sprint = keys.has("shift");
+  update(dt, camYaw){
+    // Eingabe → Bewegungswunsch (in Kamerarahmen)
+    const f = (keys.has("w") || keys.has("arrowup"));
+    const b = (keys.has("s") || keys.has("arrowdown"));
+    const l = (keys.has("a") || keys.has("arrowleft"));
+    const r = (keys.has("d") || keys.has("arrowright"));
+    const sprint = keys.has("shift");
 
-  const wish = new THREE.Vector3((r?1:0)-(l?1:0), 0, (b?1:0)-(f?1:0));
-  if (wish.lengthSq()>0){
-    wish.normalize().applyQuaternion(
-      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), camYaw)
-    );
-  }
-
-  const speedTarget = SETTINGS.moveSpeed * (sprint?SETTINGS.sprintMult:1);
-  const desiredX = wish.x * speedTarget, desiredZ = wish.z * speedTarget;
-  const accel = this.onGround ? 22 : 10*SETTINGS.airControl;
-
-  this.velocity.x = THREE.MathUtils.damp(this.velocity.x, desiredX, accel, dt);
-  this.velocity.z = THREE.MathUtils.damp(this.velocity.z, desiredZ, accel, dt);
-
-  // Schwerkraft
-  this.velocity.y = Math.max(this.velocity.y - SETTINGS.gravity*dt, TERMINAL_FALL_SPEED);
-
-  // Substeps für robuste Kollision
-  const dispLen = this.velocity.length() * dt;
-  const stepsBySpeed = Math.max(1, Math.ceil(dispLen / Math.max(0.001, MAX_DISP_PER_SUBSTEP)));
-  const stepsByPen   = Math.max(1, Math.ceil(Math.abs(this.velocity.y)*dt / Math.max(SUBSTEP_PEN_TARGET, 0.075)));
-  const steps = Math.max(stepsBySpeed, stepsByPen);
-  const dtS = dt / steps;
-
-  let onGroundAccum = false;
-  for (let s=0; s<steps; s++){
-    const delta = this.velocity.clone().multiplyScalar(dtS);
-    this.capsule.start.add(delta);
-    this.capsule.end.add(delta);
-    const res = collideCapsuleWithWorld(this.capsule, this.velocity);
-    onGroundAccum = onGroundAccum || res.onGround;
-  }
-
-  // Bodenstatus + Ground-Snap
-  this.wasOnGround = this.onGround;
-  this.onGround = onGroundAccum;
-
-  if (!this.onGround && this.velocity.y <= 1.0){
-    if (snapCapsuleToGround(this.capsule, GROUND_SNAP_MAX)){
-      this.onGround = true;
-      if (this.velocity.y < 0) this.velocity.y = 0;
+    const wish = new THREE.Vector3((r?1:0)-(l?1:0), 0, (b?1:0)-(f?1:0));
+    if (wish.lengthSq()>0){
+      wish.normalize().applyQuaternion(
+        new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), camYaw)
+      );
     }
-  }
 
-  // Coyote-/Buffer-Timer
-  this.coyote  = this.onGround ? SETTINGS.coyoteTime : Math.max(0, this.coyote - dt);
-  this.jumpBuf = Math.max(0, this.jumpBuf - dt);
+    const speedTarget = SETTINGS.moveSpeed * (sprint?SETTINGS.sprintMult:1);
+    const desiredX = wish.x * speedTarget, desiredZ = wish.z * speedTarget;
+    const accel = this.onGround ? 22 : 10*SETTINGS.airControl;
 
-  // Sprung auslösen (inkl. spürbarem Double-Jump)
-  if (this.jumpBuf > 0){
-    if (this.onGround || this.coyote > 0){
-      // Boden-/Coyote-Sprung
-      this.velocity.y = SETTINGS.jumpSpeed;
-      this._justJumped = true;
-      this.airJumpsLeft = this.maxAirJumps;
-      this.jumpBuf = 0; this.coyote = 0;
-    } else if (this.airJumpsLeft > 0){
-      // Double-Jump: immer additiver Kick
-      const base  = SETTINGS.jumpSpeed * SETTINGS.doubleJumpMult; // Grundimpuls
-      const carry = Math.max(this.velocity.y, 0) * 0.25;          // etwas Aufwärtsgeschw. mitnehmen
-      this.velocity.y = Math.max(this.velocity.y + base * 0.85, base + carry);
+    this.velocity.x = THREE.MathUtils.damp(this.velocity.x, desiredX, accel, dt);
+    this.velocity.z = THREE.MathUtils.damp(this.velocity.z, desiredZ, accel, dt);
 
-      this._justJumped = true;
-      this.airJumpsLeft -= 1;
-      this.jumpBuf = 0;
+    // Schwerkraft
+    this.velocity.y = Math.max(this.velocity.y - SETTINGS.gravity*dt, TERMINAL_FALL_SPEED);
+
+    // Substeps
+    const dispLen = this.velocity.length() * dt;
+    const stepsBySpeed = Math.max(1, Math.ceil(dispLen / Math.max(0.001, MAX_DISP_PER_SUBSTEP)));
+    const stepsByPen   = Math.max(1, Math.ceil(Math.abs(this.velocity.y)*dt / Math.max(SUBSTEP_PEN_TARGET, 0.075)));
+    const steps = Math.max(stepsBySpeed, stepsByPen);
+    const dtS = dt / steps;
+
+    let onGroundAccum = false;
+    for (let s=0; s<steps; s++){
+      const delta = this.velocity.clone().multiplyScalar(dtS);
+      this.capsule.start.add(delta);
+      this.capsule.end.add(delta);
+      const res = collideCapsuleWithWorld(this.capsule, this.velocity);
+      onGroundAccum = onGroundAccum || res.onGround;
     }
-  }
 
-  // Position + Helper
-  const center = new THREE.Vector3().addVectors(this.capsule.start, this.capsule.end).multiplyScalar(0.5);
-  this.group.position.copy(center);
-  this.capsuleHelper.position.copy(center);
-  this.capsuleHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_CAPSULE;
+    this.wasOnGround = this.onGround;
+    this.onGround = onGroundAccum;
 
-  // Blickrichtung weich zum Movement
-  if (wish.lengthSq()>1e-4){
-    const targetYaw = Math.atan2(wish.x, wish.z);
-    this.heading = THREE.MathUtils.damp(this.heading, targetYaw, 12, dt);
-  }
-  this.group.rotation.y = this.heading;
+    if (!this.onGround && this.velocity.y <= 1.0){
+      if (snapCapsuleToGround(this.capsule, GROUND_SNAP_MAX)){
+        this.onGround = true;
+        if (this.velocity.y < 0) this.velocity.y = 0;
+      }
+    }
 
-  // Animationen
-  if (this.mixer){
+    // Coyote-/Buffer-Timer
+    this.coyote  = this.onGround ? SETTINGS.coyoteTime : Math.max(0, this.coyote - dt);
+    this.jumpBuf = Math.max(0, this.jumpBuf - dt);
+
+    // Sprung (inkl. Double-Jump)
+    if (this.jumpBuf > 0){
+      if (this.onGround || this.coyote > 0){
+        this.velocity.y = SETTINGS.jumpSpeed;
+        this._justJumped = true;
+        this.airJumpsLeft = this.maxAirJumps;
+        this.jumpBuf = 0; this.coyote = 0;
+      } else if (this.airJumpsLeft > 0){
+        const base  = SETTINGS.jumpSpeed * SETTINGS.doubleJumpMult;
+        const carry = Math.max(this.velocity.y, 0) * 0.25;
+        this.velocity.y = Math.max(this.velocity.y + base * 0.85, base + carry);
+        this._justJumped = true;
+        this.airJumpsLeft -= 1;
+        this.jumpBuf = 0;
+      }
+    }
+
+    // Position + Helper
+    const center = new THREE.Vector3().addVectors(this.capsule.start, this.capsule.end).multiplyScalar(0.5);
+    this.group.position.copy(center);
+    this.capsuleHelper.position.copy(center);
+    this.capsuleHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_CAPSULE;
+
+    // Blickrichtung weich zum Movement
     const hSpeed = Math.hypot(this.velocity.x, this.velocity.z);
-    if (this.anim.move){
-      const base = Math.max(0.01, SETTINGS.moveSpeed);
-      this.anim.move.timeScale = THREE.MathUtils.clamp(hSpeed / base, 0.75, 1.5);
+    if (hSpeed>0.01){
+      const targetYaw = Math.atan2(this.velocity.x, this.velocity.z);
+      this.heading = THREE.MathUtils.damp(this.heading, targetYaw, 12, dt);
     }
+    this.group.rotation.y = this.heading;
 
-    if (!this.wasOnGround && this.onGround){
-      this.airJumpsLeft = this.maxAirJumps;
-      this._landLock = 0.25;
-      if (this.anim.land){
-        this._playOneShot(this.anim.land, 0.08, ()=>{
-          this._landLock = 0;
+    // Animationen
+    if (this.mixer){
+      if (this.anim.move){
+        const base = Math.max(0.01, SETTINGS.moveSpeed);
+        this.anim.move.timeScale = THREE.MathUtils.clamp(hSpeed / base, 0.75, 1.5);
+      }
+
+      if (!this.wasOnGround && this.onGround){
+        this.airJumpsLeft = this.maxAirJumps;
+        this._landLock = 0.25;
+        if (this.anim.land){
+          this._playOneShot(this.anim.land, 0.08, ()=>{
+            this._landLock = 0;
+            if (hSpeed>0.5 && this.anim.move) this._playAction(this.anim.move, 0.12);
+            else if (this.anim.idle) this._playAction(this.anim.idle, 0.12);
+          });
+        } else {
           if (hSpeed>0.5 && this.anim.move) this._playAction(this.anim.move, 0.12);
           else if (this.anim.idle) this._playAction(this.anim.idle, 0.12);
-        });
-      } else {
-        if (hSpeed>0.5 && this.anim.move) this._playAction(this.anim.move, 0.12);
-        else if (this.anim.idle) this._playAction(this.anim.idle, 0.12);
+        }
+      } else if (this.wasOnGround && !this.onGround){
+        if (this._justJumped && this.anim.jumpStart){
+          this._playOneShot(this.anim.jumpStart, 0.08, ()=>{
+            if (!this.onGround && this.anim.fall) this._playAction(this.anim.fall, 0.06);
+          });
+        } else if (this.anim.fall){
+          this._playAction(this.anim.fall, 0.06);
+        }
+      } else if (this.onGround && this._landLock<=0){
+        if (hSpeed>0.6 && this.anim.move) this._playAction(this.anim.move, 0.12);
+        else if (this.anim.idle) this._playAction(this.anim.idle, 0.15);
       }
-    } else if (this.wasOnGround && !this.onGround){
-      if (this._justJumped && this.anim.jumpStart){
-        this._playOneShot(this.anim.jumpStart, 0.08, ()=>{
-          if (!this.onGround && this.anim.fall) this._playAction(this.anim.fall, 0.06);
-        });
-      } else if (this.anim.fall){
-        this._playAction(this.anim.fall, 0.06);
-      }
-    } else if (this.onGround && this._landLock<=0){
-      if (hSpeed>0.6 && this.anim.move) this._playAction(this.anim.move, 0.12);
-      else if (this.anim.idle) this._playAction(this.anim.idle, 0.15);
+
+      if (this._landLock>0) this._landLock = Math.max(0, this._landLock - dt);
+      this.mixer.update(dt);
     }
 
-    if (this._landLock>0) this._landLock = Math.max(0, this._landLock - dt);
-    this.mixer.update(dt);
+    if (this.group.position.y < SETTINGS.fallY) this.respawn();
+    this._justJumped = false;
   }
-
-  if (this.group.position.y < SETTINGS.fallY) this.respawn();
-  this._justJumped = false;
-}
-
 
   respawn(toIndex=activeCheckpointIndex){
     const i = clamp(toIndex, 0, checkpoints.length-1);
@@ -1098,14 +1112,15 @@ update(dt, camYaw){
 
 
 // ============================= Camera & Input ==============================
-let camYaw=0, camPitch=0.12, isDragging=false, lastX=0, lastY=0;
-
-UI.canvas.addEventListener("mousedown", e => { isDragging=true; lastX=e.clientX; lastY=e.clientY; });
-window.addEventListener("mouseup", () => { isDragging=false; });
+let camYaw=0, camPitch=0.12;
 
 window.addEventListener("mousemove", e => {
-  if (!isDragging) return;
-  const dx = e.clientX - lastX, dy = e.clientY - lastY; lastX = e.clientX; lastY = e.clientY;
+  if (body.getAttribute("data-screen") !== "game") return;
+
+  const dx = (typeof e.movementX === "number") ? e.movementX : ((lastX===null)?0:(e.clientX - lastX));
+  const dy = (typeof e.movementY === "number") ? e.movementY : ((lastY===null)?0:(e.clientY - lastY));
+  lastX = e.clientX; lastY = e.clientY;
+
   const base = 0.003 * (INPUT?.mouseSens ?? 1.0);
   camYaw   -= dx * base;
   camPitch -= dy * base;
@@ -1139,6 +1154,7 @@ window.addEventListener("resize", ()=>{
 let gameStarted = false;
 
 async function startGame(){
+  ensurePointerLock(); // gleich beim Start-Klick anfragen
   if (gameStarted){ setScreen("game"); setPaused(false); return; }
   gameStarted = true;
 
@@ -1146,7 +1162,7 @@ async function startGame(){
   setScreen("loading");
   setStatus("Initialisiere…");
 
-  // === Skybox laden (Dateien im selben Ordner) ===
+  // Skybox (Dateien im selben Ordner)
   setStatus("Lade Skybox…");
   await loadSkybox();
 
