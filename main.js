@@ -396,17 +396,17 @@ function makeGround(){
 
 
 // ============================= World Build =================================
-const roughCheckpointAbove = (res) => {
+const roughCheckpointAbove = (res, offsetY=0.2) => {
   const c = res.group.position.clone();
-  c.y = res.group.position.y + res.size.y + SETTINGS.playerHeight * 0.6 + 0.2;
+  c.y += res.size.y + SETTINGS.playerHeight * 0.6 + offsetY;
   return c;
 };
 
 async function makeITWorld(modelPack){
   const select = (cats, scaleHint=1) => {
-    const cat = cats[0] || "generic";
+    const cat = cats[Math.floor(Math.random() * cats.length)] || "generic";
     const w = (TARGET_WIDTH_BY_CAT[cat] || TARGET_WIDTH_BY_CAT.generic) * scaleHint;
-    const mdl = pickModel(modelPack, cats);
+    const mdl = pickModel(modelPack, [cat]);
     if(!mdl){
       const base = new THREE.Vector3(w, 0.3, Math.max(1.2, w*0.6));
       const size = new THREE.Vector3(base.x * PLATFORM_SIZE_MULT, KEEP_Y_SCALE ? base.y : base.y * PLATFORM_SIZE_MULT, base.z * PLATFORM_SIZE_MULT);
@@ -416,46 +416,61 @@ async function makeITWorld(modelPack){
     const size = new THREE.Vector3(est.x * PLATFORM_SIZE_MULT, KEEP_Y_SCALE ? est.y : est.y * PLATFORM_SIZE_MULT, est.z * PLATFORM_SIZE_MULT);
     return { model:mdl, size, targetW:w };
   };
+
   const place = (sel, pos, yaw=0) => sel.model
     ? placeModelPlatform(sel.model, { position:pos, yaw, targetWidth:sel.targetW })
     : makeBoxPlatform(sel.size.x/PLATFORM_SIZE_MULT, sel.size.y/(KEEP_Y_SCALE?1:PLATFORM_SIZE_MULT), sel.size.z/PLATFORM_SIZE_MULT, pos, yaw);
 
+  // STARTPLATTFORM
   const startSel = select(["keyboard","desk","laptop","generic"], 1.25 * START_SIZE_MULT);
   const startRes = place(startSel, new THREE.Vector3(0,0.2,0));
   checkpoints.push({ pos: roughCheckpointAbove(startRes) });
 
-  const stepsTotal=50, easySteps=5;
-  const riseEasy=0.9, riseNorm=1.3, gapEasy=0.9, gapNorm=1.15, turnPerStep=Math.PI/7;
-  const catSeq = [
-    ["keyboard","laptop","monitor"], ["server","computer","printer"], ["desk","chair","monitor"],
-    ["laptop","keyboard","monitor"], ["computer","mouse","phone"], ["server","printer","computer"],
-    ["chair","desk","headphones"]
-  ];
+  const stepsTotal = 50;
+  let angle = 0, prevCenter = startRes.group.position.clone(), prevSize = startRes.size.clone();
 
-  let angle=0, prevCenter=startRes.group.position.clone(), prevSize=startRes.size.clone();
-  for(let i=0;i<stepsTotal;i++){
-    angle += turnPerStep;
-    const cats = catSeq[i % catSeq.length];
-    const sel  = select(cats, 1.0);
-    const gap  = i<easySteps?gapEasy:gapNorm;
-    const rise = i<easySteps?riseEasy:riseNorm;
+  for(let i=0; i<stepsTotal; i++){
+    // Schwierigkeit steigt: Lücken werden größer, Plattformen kleiner
+    const difficulty = i / stepsTotal;
+    const gap = THREE.MathUtils.lerp(0.9, 1.8, difficulty) * (0.8 + Math.random()*0.4);
+    const rise = THREE.MathUtils.lerp(0.9, 2.0, difficulty) * (0.9 + Math.random()*0.3);
+    const scaleHint = THREE.MathUtils.lerp(1.0, 0.7, difficulty); // Plattformen werden kleiner
 
+    // Plattformwahl zufällig aus allen Kategorien
+    const allCats = ["keyboard","laptop","monitor","server","computer","printer","desk","chair","headphones","mouse","phone"];
+    const sel = select(allCats, scaleHint);
+
+    angle += (Math.PI/7) * (0.9 + Math.random()*0.2); // leichte Variation der Drehung
     const distCenters = diagRadius(prevSize) + diagRadius(sel.size) + gap;
     const dir = new THREE.Vector3(Math.cos(angle),0,Math.sin(angle));
-    const nextCenter = prevCenter.clone().addScaledVector(dir, distCenters); nextCenter.y += rise;
-    const yaw = angle + Math.PI;
+    const nextCenter = prevCenter.clone().addScaledVector(dir, distCenters);
+    nextCenter.y += rise;
+
+    const yaw = angle + Math.PI + (Math.random()*0.2 - 0.1); // leichte zufällige Drehung
     const res = place(sel, nextCenter, yaw);
 
-    if(i % 7 === 6){
-      const cp = roughCheckpointAbove(res);
-      const beacon = new THREE.PointLight(0x66ccff, 1.2, 10);
-      beacon.position.copy(cp).add(new THREE.Vector3(0, 0.2, 0));
-      scene.add(beacon);
+    // Checkpoints: 30% Chance auf Plattform selbst, sonst über Plattform
+    if(Math.random() < 0.3){
+      const cp = nextCenter.clone();
+      cp.y += sel.size.y * (0.5 + Math.random()*0.5); // irgendwo auf der Plattform
       checkpoints.push({ pos: cp });
+    } else if(i % 7 === 6){
+      checkpoints.push({ pos: roughCheckpointAbove(res) });
     }
-    prevCenter = nextCenter; prevSize = res.size.clone();
+
+    // Optionale Lichtpunkte über Checkpoints
+    if(Math.random() < 0.2){
+      const beacon = new THREE.PointLight(0x66ccff, 1.2, 10);
+      const cpLight = roughCheckpointAbove(res, 0.3);
+      beacon.position.copy(cpLight);
+      scene.add(beacon);
+    }
+
+    prevCenter = nextCenter;
+    prevSize = res.size.clone();
   }
 }
+
 
 
 // ============================= Platforms / Helpers =========================
