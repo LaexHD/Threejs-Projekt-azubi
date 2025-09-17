@@ -451,8 +451,8 @@ const roughCheckpointAbove = (res, offsetY=0.1) => {
 };
 
 async function makeITWorld(modelPack){
-  const maxHorizontalReach = 2.0; // max. Distanz horizontal pro Schritt
-  const maxVerticalRise = 1.2;    // max. Höhe pro Sprung
+  const maxHorizontalReach = 3.2; // max. Distanz horizontal pro Schritt
+  const maxVerticalRise = 1.3;    // max. Höhe pro Sprung
 
   const select = (cats, scaleHint=1) => {
     const cat = cats[Math.floor(Math.random() * cats.length)] || "generic";
@@ -474,11 +474,13 @@ async function makeITWorld(modelPack){
       : makeBoxPlatform(sel.size.x/PLATFORM_SIZE_MULT, sel.size.y/(KEEP_Y_SCALE?1:PLATFORM_SIZE_MULT), sel.size.z/PLATFORM_SIZE_MULT, pos, yaw);
 
     // Flache Objekte horizontal legen
-    if(sel.size.y < sel.size.x*0.5 && sel.size.y < sel.size.z*0.5){
-      res.group.rotation.x = -Math.PI/2;
+    if(["keyboard","monitor","mouse","phone"].includes(sel.cat) || (sel.size.y < sel.size.x*0.5 && sel.size.y < sel.size.z*0.5)){
+      res.group.rotation.x = -Math.PI/2; // flach
     }
 
+    // BoundingBox nach allen Transformationen berechnen (inkl. Rotation, Position, Scale)
     res.bbox = new THREE.Box3().setFromObject(res.group);
+
     return res;
   };
 
@@ -494,41 +496,42 @@ async function makeITWorld(modelPack){
   for(let i=0;i<stepsTotal;i++){
     const difficulty = i/stepsTotal;
 
-    // horizontale Distanz innerhalb maxHorizontalReach, leicht steigende Schwierigkeit
-    const baseGap = THREE.MathUtils.lerp(1.0, maxHorizontalReach*0.9, difficulty);
-    const gap = baseGap * (0.9 + Math.random()*0.2);
-
-    // vertikaler Anstieg, max maxVerticalRise
-    const baseRise = THREE.MathUtils.lerp(0.5, maxVerticalRise*0.9, difficulty);
-    const rise = baseRise * (0.9 + Math.random()*0.2);
-
     const scaleHint = THREE.MathUtils.lerp(1.0, 0.75, difficulty);
-
     const allCats = ["keyboard","laptop","monitor","server","computer","printer","desk","chair","headphones","mouse"];
     const sel = select(allCats, scaleHint);
 
+    // Winkel für Platzierung
     angle += (Math.PI/7) * (0.95 + Math.random()*0.1);
-    const distCenters = diagRadius(prevSize) + diagRadius(sel.size) + gap;
-    const dir = new THREE.Vector3(Math.cos(angle),0,Math.sin(angle));
-    const nextCenter = prevCenter.clone().addScaledVector(dir, distCenters);
-    nextCenter.y += rise;
+    let distCenters = diagRadius(prevSize) + diagRadius(sel.size) + THREE.MathUtils.lerp(1.2, 2.2, difficulty) * (0.9 + Math.random()*0.2);
+
+    // Horizontalen Sprung begrenzen
+    if(distCenters > maxHorizontalReach) distCenters = maxHorizontalReach;
+
+    const dir = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle));
+    let nextCenter = prevCenter.clone().addScaledVector(dir, distCenters);
+
+    // Vertikalen Sprung begrenzen
+    let rise = THREE.MathUtils.lerp(0.5, maxVerticalRise, difficulty) * (0.9 + Math.random()*0.2);
+    if(rise > maxVerticalRise) rise = maxVerticalRise;
+    nextCenter.y = prevCenter.y + rise;
 
     const yaw = angle + Math.PI + (Math.random()*0.1 - 0.05);
     const res = place(sel, nextCenter, yaw);
 
-    // Checkpoint: 10% Chance, auf Objekt, aufsteigend
-    if(Math.random()<0.1){
+    // Checkpoint: 10% Chance, nur auf Objekt, aufsteigend
+    if(Math.random() < 0.1){
       const cp = new THREE.Vector3();
-      cp.x = THREE.MathUtils.lerp(res.bbox.min.x + 0.1, res.bbox.max.x - 0.1, Math.random());
-      cp.z = THREE.MathUtils.lerp(res.bbox.min.z + 0.1, res.bbox.max.z - 0.1, Math.random());
+      cp.x = THREE.MathUtils.lerp(res.bbox.min.x + 0.05, res.bbox.max.x - 0.05, Math.random());
+      cp.z = THREE.MathUtils.lerp(res.bbox.min.z + 0.05, res.bbox.max.z - 0.05, Math.random());
       const minRise = 0.5;
       cp.y = Math.max(res.bbox.max.y + 0.05, lastCheckpointY + minRise);
       checkpoints.push({ pos: cp });
       lastCheckpointY = cp.y;
 
-      // Flagge
+      // Flagge direkt auf Checkpoint
       const flagGroup = new THREE.Group();
       flagGroup.position.copy(cp);
+
       const pole = new THREE.Mesh(
         new THREE.CylinderGeometry(0.05,0.05,2,8),
         new THREE.MeshStandardMaterial({color:0xaaaaaa,metalness:0.6,roughness:0.4})
@@ -551,6 +554,8 @@ async function makeITWorld(modelPack){
     prevSize = res.size.clone();
   }
 }
+
+
 
 
 // ============================= Platforms / Helpers =========================
