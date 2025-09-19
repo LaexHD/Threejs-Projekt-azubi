@@ -1,21 +1,27 @@
 // ============================= Imports (CDN) ===============================
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
-import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
+import { GLTFLoader }  from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
 import { DRACOLoader } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/DRACOLoader.js";
-import { KTX2Loader } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/KTX2Loader.js";
+import { KTX2Loader }  from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/KTX2Loader.js";
 import { MeshoptDecoder } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/meshopt_decoder.module.min.js";
 import * as SkeletonUtils from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/utils/SkeletonUtils.js";
 import { Capsule } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/math/Capsule.js";
 import { mergeGeometries } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js";
-import { MeshBVHHelper, acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.9.1/build/index.module.js";
+import {
+  MeshBVHHelper,
+  acceleratedRaycast,
+  computeBoundsTree,
+  disposeBoundsTree
+} from "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.9.1/build/index.module.js";
 
 // BVH an three.js hängen
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
-THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
-THREE.Mesh.prototype.raycast = acceleratedRaycast;
+THREE.BufferGeometry.prototype.disposeBoundsTree  = disposeBoundsTree;
+THREE.Mesh.prototype.raycast                     = acceleratedRaycast;
+
 
 // ============================= UI / Screens ================================
-const q = (s, r=document) => r.querySelector(s);
+const q  = (s, r=document) => r.querySelector(s);
 const qq = (s, r=document) => Array.from(r.querySelectorAll(s));
 const { clamp, damp } = THREE.MathUtils;
 
@@ -23,21 +29,24 @@ const body = document.body;
 if (!body.hasAttribute("data-screen")) body.setAttribute("data-screen", "menu");
 
 const UI = {
-  canvas: q("#app"),
-  status: q("#status"),
-  menuSub: q("#menu-sub"),
-  loadingBar: q("#loading-bar"),
+  canvas:      q("#app"),
+  status:      q("#status"),
+  menuSub:     q("#menu-sub"),
+  loadingBar:  q("#loading-bar"),
   loadingText: q("#loading-text"),
-  btnStart: q("#btn-start"),
-  btnOptions: q("#btn-options"),
-  btnCredits: q("#btn-credits"),
-  btnBack1: q("#btn-back-1"),
-  btnBack2: q("#btn-back-2"),
-  btnResume: q("#btn-resume"),
-  btnRestart: q("#btn-restart"),
-  btnQuit: q("#btn-quit"),
-  sensSlider: q("#opt-sens"),
-  sensVal: q("#opt-sens-val"),
+
+  btnStart:    q("#btn-start"),
+  btnOptions:  q("#btn-options"),
+  btnCredits:  q("#btn-credits"),
+  btnBack1:    q("#btn-back-1"),
+  btnBack2:    q("#btn-back-2"),
+
+  btnResume:   q("#btn-resume"),
+  btnRestart:  q("#btn-restart"),
+  btnQuit:     q("#btn-quit"),
+
+  sensSlider:  q("#opt-sens"),
+  sensVal:     q("#opt-sens-val"),
 };
 
 const INPUT = {
@@ -55,16 +64,12 @@ function openSubPanel(name){
   UI.menuSub?.classList.remove("hidden");
   qq(".menu-sub .panel-content").forEach(p => p.classList.toggle("active", p.dataset.panel === name));
 }
-function closeSubPanel(){
-  UI.menuSub?.classList.add("hidden");
-}
-function setStatus(t){
-  if (UI.status) UI.status.textContent = t;
-}
+function closeSubPanel(){ UI.menuSub?.classList.add("hidden"); }
+function setStatus(t){ if (UI.status) UI.status.textContent = t; }
 function setLoadingPercent(pct){
   const p = clamp(Math.round(pct), 0, 100);
   UI.loadingBar?.style.setProperty("--pct", p);
-  if (UI.loadingText) UI.loadingText.textContent = `Lade Assets… ${p}%`;
+  UI.loadingText && (UI.loadingText.textContent = `Lade Assets… ${p}%`);
   q(".progress")?.setAttribute("aria-valuenow", String(p));
 }
 
@@ -75,45 +80,32 @@ if (UI.sensSlider) {
   const applySens = () => {
     INPUT.mouseSens = parseFloat(UI.sensSlider.value) || 1.0;
     localStorage.setItem("onlyup.mouseSens", String(INPUT.mouseSens));
-    if (UI.sensVal) UI.sensVal.textContent = `${INPUT.mouseSens.toFixed(2)}×`;
+    UI.sensVal && (UI.sensVal.textContent = `${INPUT.mouseSens.toFixed(2)}×`);
   };
   UI.sensSlider.addEventListener("input", applySens);
   UI.sensSlider.addEventListener("change", applySens);
 }
 
 // Menü-Buttons
-UI.btnStart?.addEventListener("click", startGame);
-UI.btnOptions?.addEventListener("click", () => openSubPanel("options"));
-UI.btnCredits?.addEventListener("click", () => openSubPanel("credits"));
-UI.btnBack1?.addEventListener("click", closeSubPanel);
-UI.btnBack2?.addEventListener("click", closeSubPanel);
+UI.btnStart   ?.addEventListener("click", startGame);
+UI.btnOptions ?.addEventListener("click", () => openSubPanel("options"));
+UI.btnCredits ?.addEventListener("click", () => openSubPanel("credits"));
+UI.btnBack1   ?.addEventListener("click", closeSubPanel);
+UI.btnBack2   ?.addEventListener("click", closeSubPanel);
 
 // Pause-Buttons
-UI.btnResume?.addEventListener("click", () => setPaused(false));
-UI.btnRestart?.addEventListener("click", () => {
-  setPaused(false);
-  player?.respawn();
-  ensurePointerLock();
-});
-UI.btnQuit?.addEventListener("click", () => {
-  setPaused(true);
-  setScreen("menu");
-});
+UI.btnResume  ?.addEventListener("click", () => setPaused(false));
+UI.btnRestart ?.addEventListener("click", () => { setPaused(false); player?.respawn(); ensurePointerLock(); });
+UI.btnQuit    ?.addEventListener("click", () => { setPaused(true); setScreen("menu"); });
 
 // ESC toggelt Pause
 window.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   const s = body.getAttribute("data-screen");
-  if (s === "game") {
-    setPaused(true);
-    setScreen("paused");
-  }
-  if (s === "paused"){
-    setPaused(false);
-    setScreen("game");
-    ensurePointerLock();
-  }
+  if (s === "game")  { setPaused(true);  setScreen("paused"); }
+  if (s === "paused"){ setPaused(false); setScreen("game"); ensurePointerLock(); }
 });
+
 
 // ============================= Pointer Lock =================================
 let pointerLocked = false;
@@ -121,103 +113,81 @@ let lastX = null, lastY = null;
 
 function ensurePointerLock(){
   if (!UI.canvas) return;
-  const req = UI.canvas.requestPointerLock || UI.canvas.mozRequestPointerLock || UI.canvas.webkitRequestPointerLock;
+  const req = UI.canvas.requestPointerLock
+           || UI.canvas.mozRequestPointerLock
+           || UI.canvas.webkitRequestPointerLock;
   if (document.pointerLockElement !== UI.canvas && req) {
-    try {
-      req.call(UI.canvas, { unadjustedMovement: true });
-    } catch {
-      req.call(UI.canvas);
-    }
+    try { req.call(UI.canvas, { unadjustedMovement: true }); }
+    catch { req.call(UI.canvas); }
   }
 }
 
 document.addEventListener("pointerlockchange", () => {
   pointerLocked = (document.pointerLockElement === UI.canvas);
   if (UI.canvas) UI.canvas.style.cursor = pointerLocked ? "none" : "";
-  lastX = null;
-  lastY = null;
+  lastX = null; lastY = null;
 });
 document.addEventListener("pointerlockerror", (e) => console.warn("PointerLock error:", e));
 // Ein Klick ins Canvas holt den Lock zurück (falls verloren)
 UI.canvas?.addEventListener("click", ensurePointerLock);
+
 
 // ============================= Config / Debug ==============================
 const DEBUG = {
   ENABLED: true,
   SHOW_STATIC: true,
   SHOW_CAPSULE: false,
-  SHOW_BVH: false,
-  SHOW_HITBOXES: true, // <- echte Hitbox-Overlays (aus Kollisionsmesh)
+  SHOW_BVH: false
 };
-
 const DEBUG_COLORS = {
   bbox: 0x3b82f6,
   groundEdge: 0xffffff,
   capsule: 0xff00aa
 };
 
-const ASSET_PATHS = {
-  character: "Business Man.glb"
-};
-
+const ASSET_PATHS = { character: "Business Man.glb" };
 const MODEL_PACK_PATHS = [
   "Computer Mouse.glb","Computer.glb","Desk.glb","Headphones.glb",
   "Keyboard.glb","Laptop.glb","Monitor.glb","Office Chair (1).glb",
   "Office Chair.glb","Office Printer Copier.glb","Phone.glb",
   "server rack.glb","Standing Desk.glb","Stapler.glb"
 ];
-
 const MODEL_CATEGORIES = {
-  keyboard:["keyboard"],
-  laptop:["laptop","notebook"],
-  server:["server","rack"],
-  printer:["printer","copier"],
-  desk:["desk","table","standing desk"],
-  monitor:["monitor","screen","display"],
-  chair:["chair","seat"],
-  computer:["computer","pc","tower","case"],
-  mouse:["mouse"],
-  phone:["phone","smartphone","mobile"],
-  stapler:["stapler"],
-  headphones:["headphones","headset"],
-  generic:[]
+  keyboard:["keyboard"], laptop:["laptop","notebook"], server:["server","rack"],
+  printer:["printer","copier"], desk:["desk","table","standing desk"],
+  monitor:["monitor","screen","display"], chair:["chair","seat"],
+  computer:["computer","pc","tower","case"], mouse:["mouse"],
+  phone:["phone","smartphone","mobile"], stapler:["stapler"],
+  headphones:["headphones","headset"], generic:[]
 };
-
 const TARGET_WIDTH_BY_CAT = {
-  desk:4.5, server:1.6, printer:2.4, keyboard:3.2, laptop:2.8, monitor:2.2,
-  chair:2.2, computer:2.0, mouse:2.0, phone:2.0, stapler:2.0, headphones:2.0,
-  generic:2.5
+  desk:4.5, server:1.6, printer:2.4, keyboard:3.2, laptop:2.8,
+  monitor:2.2, chair:2.2, computer:2.0, mouse:2.0, phone:2.0,
+  stapler:2.0, headphones:2.0, generic:2.5
 };
 
 const SETTINGS = {
-  gravity: 24,
-  moveSpeed: 7.0,
-  sprintMult: 1.5,
-  jumpSpeed: 9.5,
-  airControl: 0.45,
-  camDistance: 5.8,
-  camHeight: 2.2,
-  camLag: 0.12,
-  playerRadius: 0.35,
-  playerHeight: 1.7,
-  fallY: -80,
-  maxAirJumps: 1,
-  doubleJumpMult: 0.92,
+  gravity: 24, moveSpeed: 7.0, sprintMult: 1.5, jumpSpeed: 9.5,
+  airControl: 0.45, camDistance: 5.8, camHeight: 2.2, camLag: 0.12,
+  playerRadius: 0.35, playerHeight: 1.7, fallY: -80,
+  maxAirJumps: 1, doubleJumpMult: 0.92,
   // Coyote / Jumpbuffer
   coyoteTime: 0.12,
   jumpBuffer: 0.12
 };
-
 const WALKABLE_NORMAL_Y = 0.6;
 const TERMINAL_FALL_SPEED = -40;
-const SUBSTEP_PEN_TARGET = 0.10;
+const SUBSTEP_PEN_TARGET  = 0.10;
+
 const MAX_DISP_PER_SUBSTEP = SETTINGS.playerRadius * 0.35;
-const MAX_RESOLVE_ITERS = 12;
-const SKIN_WIDTH = 0.02;
-const GROUND_SNAP_MAX = 0.32;
+const MAX_RESOLVE_ITERS    = 12;
+const SKIN_WIDTH           = 0.02;
+const GROUND_SNAP_MAX      = 0.32;
+
 const PLATFORM_SIZE_MULT = 1.4;
-const START_SIZE_MULT = 1.6;
-const KEEP_Y_SCALE = true;
+const START_SIZE_MULT    = 1.6;
+const KEEP_Y_SCALE       = true;
+
 
 // ============================= Renderer / Scene ============================
 const renderer = new THREE.WebGLRenderer({ canvas: UI.canvas, antialias: true, powerPreference: "high-performance" });
@@ -241,22 +211,22 @@ sun.position.set(6,12,8);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048,2048);
 sun.shadow.camera.near = 0.5;
-sun.shadow.camera.far = 180;
-sun.shadow.normalBias = 0.02;
+sun.shadow.camera.far  = 180;
+sun.shadow.normalBias  = 0.02;
 scene.add(sun);
+
 
 // ============================= Loaders/Manager =============================
 let loadingManager, gltfLoader, draco, ktx2;
+
 function setupLoaders(){
   loadingManager = new THREE.LoadingManager();
-  loadingManager.onStart = () => {
-    setScreen("loading");
-    setLoadingPercent(0);
-  };
+  loadingManager.onStart    = () => { setScreen("loading"); setLoadingPercent(0); };
   loadingManager.onProgress = (_url, loaded, total) => setLoadingPercent(total ? (loaded/total)*100 : 10);
-  loadingManager.onLoad = () => setLoadingPercent(100);
+  loadingManager.onLoad     = () => setLoadingPercent(100);
 
   gltfLoader = new GLTFLoader(loadingManager);
+
   draco = new DRACOLoader();
   draco.setDecoderPath("https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/");
   gltfLoader.setDRACOLoader(draco);
@@ -266,14 +236,34 @@ function setupLoaders(){
   gltfLoader.setMeshoptDecoder(MeshoptDecoder);
 }
 
+const CHECKPOINT_FLAGS = {
+  unreached: "Flag.glb",
+  reached:   "Flag green.glb"
+};
+
+async function loadCheckpointFlagGLB(path){
+  const { g } = await loadGLBWithFallback(expandPathCandidates(path));
+  const root = g.scene || g.scenes[0];
+  root.traverse(o=>{
+    if(o.isMesh){
+      o.castShadow = true;
+      o.receiveShadow = true;
+      if(o.material) o.material.side = THREE.FrontSide;
+    }
+  });
+  return root;
+}
+
+
+
 // ============================= Skybox ======================================
 const SKYBOX_FILES = [
-  "Daylight Box_Right.bmp", // +X
-  "Daylight Box_Left.bmp",  // -X
-  "Daylight Box_Top.bmp",   // +Y
-  "Daylight Box_Bottom.bmp",// -Y
-  "Daylight Box_Front.bmp", // +Z
-  "Daylight Box_Back.bmp"   // -Z
+  "Daylight Box_Right.bmp",  // +X
+  "Daylight Box_Left.bmp",   // -X
+  "Daylight Box_Top.bmp",    // +Y
+  "Daylight Box_Bottom.bmp", // -Y
+  "Daylight Box_Front.bmp",  // +Z
+  "Daylight Box_Back.bmp"    // -Z
 ];
 
 async function loadSkybox(){
@@ -285,14 +275,17 @@ async function loadSkybox(){
         (cube)=>{
           cube.colorSpace = THREE.SRGBColorSpace;
           scene.background = cube;
+
           // Environment-Map (IBL) aus Cubemap
           const pmrem = new THREE.PMREMGenerator(renderer);
           pmrem.compileCubemapShader();
           const envTex = pmrem.fromCubemap(cube).texture;
           scene.environment = envTex;
           pmrem.dispose();
+
           // Nebel optional aus, damit die Box nicht verwaschen wirkt
           scene.fog = null;
+
           resolve(true);
         },
         undefined,
@@ -308,6 +301,7 @@ async function loadSkybox(){
   });
 }
 
+
 // ============================= Game State ==================================
 const clock = new THREE.Clock();
 const keys = new Set();
@@ -318,15 +312,13 @@ const _collisionGeoms = [];
 let worldCollisionMesh = null;
 let worldBVHHelper = null;
 
-// NEU: echte Hitbox-Lines (aus der gemergten Kollisionsgeometrie)
-let worldHitboxLines = null;
-
 const debugStatic = new THREE.Group();
 scene.add(debugStatic);
 
 let player = null;
 let isPaused = false;
 const setPaused = (v) => { isPaused = v; };
+
 
 // ============================= Utils =======================================
 function inferModelCategory(nameLower){
@@ -346,10 +338,7 @@ const escapeLiteralPercents = (p) => p.replace(/%/g,"%25");
 function expandPathCandidates(p){
   const base=[p,encodeURI(p),escapeLiteralPercents(p),encodeURI(escapeLiteralPercents(p))];
   const out=[];
-  for(const x of base){
-    out.push(x);
-    if(!x.includes("/")) out.push("assets/models/"+x);
-  }
+  for(const x of base){ out.push(x); if(!x.includes("/")) out.push("assets/models/"+x); }
   return Array.from(new Set(out));
 }
 function loadGLBWithFallback(paths){
@@ -371,42 +360,24 @@ async function loadOneModel(path){
     o.castShadow = o.receiveShadow = true;
     if (o.material){
       o.material.side = THREE.FrontSide;
-      if (o.material.transparent && o.material.opacity === 0){
-        o.material.opacity = 1;
-        o.material.transparent = false;
-      }
+      if (o.material.transparent && o.material.opacity === 0){ o.material.opacity = 1; o.material.transparent = false; }
     }
   });
   const tmp = computeBBox(root);
-  return {
-    name:url.split("/").pop(),
-    category:inferModelCategory(url.toLowerCase()),
-    template:root,
-    baseSize:tmp.size.clone(),
-    animations:g.animations||[]
-  };
+  return { name:url.split("/").pop(), category:inferModelCategory(url.toLowerCase()), template:root, baseSize:tmp.size.clone(), animations:g.animations||[] };
 }
 async function loadModelPack(paths){
   const results=[];
-  for(const p of paths){
-    try{ results.push(await loadOneModel(p)); }
-    catch(e){ console.warn("Konnte Modell nicht laden:",p,e); }
-  }
+  for(const p of paths){ try{ results.push(await loadOneModel(p)); }catch(e){ console.warn("Konnte Modell nicht laden:",p,e);} }
   const byCat = Object.fromEntries(Object.keys(MODEL_CATEGORIES).map(k=>[k,[]]));
   for(const m of results){ byCat[m.category]?.push(m); }
   const all=results.slice();
-  for(const k of Object.keys(byCat)){
-    if(!byCat[k].length) byCat[k] = byCat.generic.length ? byCat.generic : all;
-  }
+  for(const k of Object.keys(byCat)){ if(!byCat[k].length) byCat[k] = byCat.generic.length ? byCat.generic : all; }
   return { byCat, all };
 }
 function pickModel(pack, cats){
-  for(const c of cats){
-    const arr = pack.byCat[c];
-    if (arr?.length) return arr[(Math.random()*arr.length)|0];
-  }
-  const all = pack.all;
-  return all[(Math.random()*all.length)|0];
+  for(const c of cats){ const arr = pack.byCat[c]; if (arr?.length) return arr[(Math.random()*arr.length)|0]; }
+  const all = pack.all; return all[(Math.random()*all.length)|0];
 }
 function scaledSizeFor(modelDef, targetWidth){
   const baseXZ = Math.max(modelDef.baseSize.x, modelDef.baseSize.z);
@@ -415,29 +386,36 @@ function scaledSizeFor(modelDef, targetWidth){
 }
 const diagRadius = (size) => 0.5 * Math.hypot(size.x, size.z);
 
+
 // ============================= Collision Baking ============================
 function bakeMeshToCollision(mesh){
   const g0 = mesh.geometry;
   if(!g0?.isBufferGeometry) return;
+
   // Geometrie duplizieren und entindizieren
   let g = g0.clone();
   if (g.index) g = g.toNonIndexed();
+
   // Weltmatrix inkl. Rotation/Scale/Position anwenden
   mesh.updateWorldMatrix(true,false);
   g.applyMatrix4(mesh.matrixWorld);
-  // Nur Position behalten
+
+  // Alle unnötigen Attribute löschen
   for(const n of Object.keys(g.attributes)){
     if(n!=="position") g.deleteAttribute(n);
   }
+
   _collisionGeoms.push(g);
 }
+
+
 
 // ============================= Boden: Inselwelt ============================
 function makeGround(){
   const R_TOP = 60;
   const R_BASE = 80;
-  const H = 16;
-  const SEG = 64;
+  const H     = 16;
+  const SEG   = 64;
 
   // Wasser (Deko)
   const water = new THREE.Mesh(
@@ -467,9 +445,7 @@ function makeGround(){
   debugStatic.add(rim);
 
   // Deko-Linien im Kreis
-  const deco = new THREE.Group();
-  deco.position.y = 0.001;
-  scene.add(deco);
+  const deco = new THREE.Group(); deco.position.y = 0.001; scene.add(deco);
   const rndInDisk = (r)=>{
     const t = Math.random()*Math.PI*2, rr = Math.sqrt(Math.random())*(r-2);
     return new THREE.Vector3(Math.cos(t)*rr, 0, Math.sin(t)*rr);
@@ -488,9 +464,7 @@ function makeGround(){
   }
 
   // Steine am Rand (nur Optik)
-  const rocks = new THREE.Group();
-  rocks.position.y = 0;
-  scene.add(rocks);
+  const rocks = new THREE.Group(); rocks.position.y = 0; scene.add(rocks);
   for(let i=0;i<28;i++){
     const a = (i/28)*Math.PI*2 + Math.random()*0.2;
     const r = R_TOP - 4 + Math.random()*6;
@@ -506,9 +480,7 @@ function makeGround(){
   }
 
   // „Büsche“ (Optik)
-  const bushes = new THREE.Group();
-  bushes.position.y = 0;
-  scene.add(bushes);
+  const bushes = new THREE.Group(); bushes.position.y = 0; scene.add(bushes);
   for(let i=0;i<18;i++){
     const p = rndInDisk(R_TOP - 8);
     const h = Math.random()*0.8 + 0.6;
@@ -523,211 +495,212 @@ function makeGround(){
   }
 }
 
+
 // ============================= World Build =================================
-const roughCheckpointAbove = (res, offsetY=0.1) => {
+const roughCheckpointAbove = (res, offsetY = 0.1) => {
   const c = res.group.position.clone();
   c.y += res.size.y + SETTINGS.playerHeight * 0.6 + offsetY;
   return c;
 };
 
-async function makeITWorld(modelPack){
+
+async function makeITWorld(modelPack) {
   const maxHorizontalReach = 4.0;
   const maxVerticalRise = 1.2;
 
-  const select = (cats, scaleHint=1) => {
+  const select = (cats, scaleHint = 1) => {
     const cat = cats[Math.floor(Math.random() * cats.length)] || "generic";
     const w = (TARGET_WIDTH_BY_CAT[cat] || TARGET_WIDTH_BY_CAT.generic) * scaleHint;
     const mdl = pickModel(modelPack, [cat]);
-    if(!mdl){
-      const base = new THREE.Vector3(w, 0.3, Math.max(1.2, w*0.6));
-      const size = new THREE.Vector3(base.x * PLATFORM_SIZE_MULT, KEEP_Y_SCALE ? base.y : base.y * PLATFORM_SIZE_MULT, base.z * PLATFORM_SIZE_MULT);
-      return { model:null, size, targetW:w, cat };
+    if (!mdl) {
+      const base = new THREE.Vector3(w, 0.3, Math.max(1.2, w * 0.6));
+      const size = new THREE.Vector3(
+        base.x * PLATFORM_SIZE_MULT,
+        KEEP_Y_SCALE ? base.y : base.y * PLATFORM_SIZE_MULT,
+        base.z * PLATFORM_SIZE_MULT
+      );
+      return { model: null, size, targetW: w, cat };
     }
     const est = scaledSizeFor(mdl, w);
-    const size = new THREE.Vector3(est.x * PLATFORM_SIZE_MULT, KEEP_Y_SCALE ? est.y : est.y * PLATFORM_SIZE_MULT, est.z * PLATFORM_SIZE_MULT);
-    return { model:mdl, size, targetW:w, cat };
+    const size = new THREE.Vector3(
+      est.x * PLATFORM_SIZE_MULT,
+      KEEP_Y_SCALE ? est.y : est.y * PLATFORM_SIZE_MULT,
+      est.z * PLATFORM_SIZE_MULT
+    );
+    return { model: mdl, size, targetW: w, cat };
   };
 
-  function place(sel, pos, yaw=0) {
+  function place(sel, pos, yaw = 0) {
     const res = sel.model
       ? placeModelPlatform(sel.model, { position: pos, yaw, targetWidth: sel.targetW })
-      : makeBoxPlatform(sel.size.x/PLATFORM_SIZE_MULT, sel.size.y/(KEEP_Y_SCALE?1:PLATFORM_SIZE_MULT), sel.size.z/PLATFORM_SIZE_MULT, pos, yaw);
+      : makeBoxPlatform(
+          sel.size.x / PLATFORM_SIZE_MULT,
+          sel.size.y / (KEEP_Y_SCALE ? 1 : PLATFORM_SIZE_MULT),
+          sel.size.z / PLATFORM_SIZE_MULT,
+          pos,
+          yaw
+        );
 
-    // Beispiel-Rotationsanpassungen (optional)
-    if(["keyboard"].includes(sel.cat)) {
-      res.group.rotation.y = -3; // flach
+    // leichte Rotationsanpassungen nach Kategorie
+    if (["keyboard"].includes(sel.cat)) {
+      res.group.rotation.y = -3;
     }
-    if(["monitor"].includes(sel.cat)) {
+    if (["monitor"].includes(sel.cat)) {
       res.group.rotation.x = -5;
-      res.group.rotation.y = -5; // flach
+      res.group.rotation.y = -5;
     }
+    
 
-    // WICHTIG: nach allen Transformationen Kollisionsgeometrie erzeugen
-    res.group.traverse(o=>{ if(o.isMesh) bakeMeshToCollision(o); });
+    // Kollisionen nach allen Transformationen backen
+    res.group.traverse((o) => {
+      if (o.isMesh) bakeMeshToCollision(o);
+    });
 
-    // (Entfernt) fake AABB-Helper
+    // BoundingBox neu berechnen
+    res.bbox = new THREE.Box3().setFromObject(res.group);
 
     return res;
   }
 
-  // Start
-  const startSel = select(["keyboard","laptop","generic"], 1.25 * START_SIZE_MULT);
-  const startRes = place(startSel, new THREE.Vector3(0,0.2,0));
-  checkpoints.push({ pos: roughCheckpointAbove(startRes) });
+  // --- Startplattform + erster Checkpoint ---
+  const startSel = select(["keyboard", "laptop", "generic"], 1.25 * START_SIZE_MULT);
+  const startRes = place(startSel, new THREE.Vector3(0, 0.2, 0));
 
-  let lastCheckpointY = startRes.group.position.y;
+  // Push initial checkpoint object (pos = Vector3). Flags werden später in alignCheckpointsToSurface erzeugt/aktualisiert.
+  checkpoints.push({ pos: roughCheckpointAbove(startRes), flagGroup: null });
 
   const stepsTotal = 50;
-  let angle = 0, prevCenter = startRes.group.position.clone(), prevSize = startRes.size.clone();
+  let angle = 0;
+  let prevCenter = startRes.group.position.clone();
+  let prevSize = startRes.size.clone();
 
-  for(let i=0;i<stepsTotal;i++){
-    const difficulty = i/stepsTotal;
+  // checkpoint-control
+  let lastCheckpointY = checkpoints[0].pos.y; // nutze die tatsächliche y des ersten checkpoint-Vector
+  let checkpointCooldown = 0;
+  const minRiseBetweenCheckpoints = 0.5; // Mindest-Höhenzuwachs zwischen Checkpoints
+
+  for (let i = 0; i < stepsTotal; i++) {
+    const difficulty = i / stepsTotal;
     const scaleHint = THREE.MathUtils.lerp(1.0, 0.75, difficulty);
-    const allCats = ["keyboard","laptop","monitor","server","computer","printer","desk","chair","headphones","mouse"];
+    const allCats = [
+      "keyboard",
+      "laptop",
+      "monitor",
+      "server",
+      "computer",
+      "printer",
+      "desk",
+      "chair",
+      "headphones",
+      "mouse",
+    ];
     const sel = select(allCats, scaleHint);
 
-    // Winkel für Platzierung
-    angle += (Math.PI/7) * (0.95 + Math.random()*0.1);
-    let distCenters = diagRadius(prevSize) + diagRadius(sel.size) + THREE.MathUtils.lerp(1.2, 2.2, difficulty) * (0.9 + Math.random()*0.2);
-    // Horizontalen Sprung begrenzen
-    if(distCenters > maxHorizontalReach) distCenters = maxHorizontalReach;
+    // Positionierung
+    angle += (Math.PI / 7) * (0.95 + Math.random() * 0.1);
+    let distCenters =
+      diagRadius(prevSize) +
+      diagRadius(sel.size) +
+      THREE.MathUtils.lerp(1.2, 2.2, difficulty) * (0.9 + Math.random() * 0.2);
+    if (distCenters > maxHorizontalReach) distCenters = maxHorizontalReach;
 
     const dir = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle));
     let nextCenter = prevCenter.clone().addScaledVector(dir, distCenters);
 
-    // Vertikalen Sprung begrenzen
-    let rise = THREE.MathUtils.lerp(0.5, maxVerticalRise, difficulty) * (0.9 + Math.random()*0.2);
-    if(rise > maxVerticalRise) rise = maxVerticalRise;
+    // Vertikaler Sprung
+    let rise =
+      THREE.MathUtils.lerp(0.5, maxVerticalRise, difficulty) * (0.9 + Math.random() * 0.2);
+    if (rise > maxVerticalRise) rise = maxVerticalRise;
     nextCenter.y = prevCenter.y + rise;
 
-    const yaw = angle + Math.PI + (Math.random()*0.1 - 0.05);
+    const yaw = angle + Math.PI + (Math.random() * 0.1 - 0.05);
     const res = place(sel, nextCenter, yaw);
 
-    // Checkpoint: 10% Chance, nur auf Objekt, aufsteigend
-    if(Math.random() < 0.1){
-      const bbox = new THREE.Box3().setFromObject(res.group);
-      const cp = new THREE.Vector3();
-      cp.x = THREE.MathUtils.lerp(bbox.min.x + 0.05, bbox.max.x - 0.05, Math.random());
-      cp.z = THREE.MathUtils.lerp(bbox.min.z + 0.05, bbox.max.z - 0.05, Math.random());
-      const minRise = 0.5;
-      cp.y = Math.max(bbox.max.y + 0.05, lastCheckpointY + minRise);
-      checkpoints.push({ pos: cp });
-      lastCheckpointY = cp.y;
+    // Checkpoint-Logik (nur gelegentlich, mit Mindestabstand in Höhe und Anzahl Plattformen)
+    checkpointCooldown--;
+    const placeChance = 0.10; // 10% Chance, zusätzlich getriggert durch cooldown und minRise
+    const platformCenterY = res.bbox.max.y + 0.05;
 
-      // Flagge direkt auf Checkpoint
-      const flagGroup = new THREE.Group();
-      flagGroup.position.copy(cp);
-      const pole = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.05,0.05,2,8),
-        new THREE.MeshStandardMaterial({color:0xaaaaaa,metalness:0.6,roughness:0.4})
-      );
-      pole.position.y = 1;
-      flagGroup.add(pole);
-      const flag = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.8,0.5),
-        new THREE.MeshStandardMaterial({color:0x007aff,side:THREE.DoubleSide})
-      );
-      flag.position.set(0.45,1.5,0);
-      flag.rotation.y = Math.PI;
-      flagGroup.add(flag);
-      scene.add(flagGroup);
+    if (checkpointCooldown <= 0 && Math.random() < placeChance) {
+      // Kandidaten-Position innerhalb der BoundingBox (leicht zufällig, aber sicher innerhalb)
+      const margin = 0.06;
+      const px = THREE.MathUtils.lerp(res.bbox.min.x + margin, res.bbox.max.x - margin, Math.random());
+      const pz = THREE.MathUtils.lerp(res.bbox.min.z + margin, res.bbox.max.z - margin, Math.random());
+      const py = Math.max(platformCenterY, lastCheckpointY + minRiseBetweenCheckpoints);
+
+      const cpVec = new THREE.Vector3(px, py, pz);
+      checkpoints.push({ pos: cpVec, flagGroup: null });
+      lastCheckpointY = cpVec.y;
+      checkpointCooldown = 3; // mindestens 3 Plattformen Abstand
     }
 
     prevCenter = nextCenter;
     prevSize = res.size.clone();
   }
+
 }
+
+
 
 // ============================= Platforms / Helpers =========================
 function placeModelPlatform(modelDef, { position=new THREE.Vector3(), yaw=0, targetWidth=2.5 } = {}){
   const root = SkeletonUtils.clone(modelDef.template);
-
   const baseXZ = Math.max(modelDef.baseSize.x, modelDef.baseSize.z);
   const baseScale = baseXZ>1e-4 ? (targetWidth/baseXZ) : 1;
   const sXZ = baseScale * PLATFORM_SIZE_MULT;
-  const sY = KEEP_Y_SCALE ? baseScale : sXZ;
+  const sY  = KEEP_Y_SCALE ? baseScale : sXZ;
   root.scale.set(sXZ, sY, sXZ);
   root.updateMatrixWorld(true);
 
   const tmp = computeBBox(root);
-
   const group = new THREE.Group();
   root.position.y -= tmp.box.min.y;
-  group.rotation.y = yaw;
-  group.position.copy(position);
-  group.add(root);
-  scene.add(group);
+  group.rotation.y = yaw; group.position.copy(position);
+  group.add(root); scene.add(group);
 
-  // Kollisionsgeometrie wird später via group.traverse() gebacken (siehe makeITWorld)
+  root.traverse(o=>{ if(o.isMesh) bakeMeshToCollision(o); });
+
+  const helper = new THREE.Box3Helper(new THREE.Box3().setFromObject(root), DEBUG_COLORS.bbox);
+  helper.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
+  debugStatic.add(helper);
+
   return { group, size: tmp.size.clone() };
 }
-
 function makeBoxPlatform(w=4, h=0.3, d=2, pos=new THREE.Vector3(), yaw=0){
   const W = w * PLATFORM_SIZE_MULT, D = d * PLATFORM_SIZE_MULT, H = KEEP_Y_SCALE ? h : h * PLATFORM_SIZE_MULT;
-  const group=new THREE.Group();
-  group.position.copy(pos);
-  group.rotation.y=yaw;
-
-  const mesh=new THREE.Mesh(
-    new THREE.BoxGeometry(W,H,D),
-    new THREE.MeshStandardMaterial({ color:0xCFE6FF, roughness:0.9, metalness:0.05 })
-  );
-  mesh.castShadow=mesh.receiveShadow=true;
-  mesh.position.y=H*0.5;
-  group.add(mesh);
-  scene.add(group);
-
+  const group=new THREE.Group(); group.position.copy(pos); group.rotation.y=yaw;
+  const mesh=new THREE.Mesh(new THREE.BoxGeometry(W,H,D), new THREE.MeshStandardMaterial({ color:0xCFE6FF, roughness:0.9, metalness:0.05 }));
+  mesh.castShadow=mesh.receiveShadow=true; mesh.position.y=H*0.5; group.add(mesh); scene.add(group);
   bakeMeshToCollision(mesh);
 
-  // (Entfernt) fake AABB-Helper
+  const helper = new THREE.Box3Helper(new THREE.Box3().setFromObject(mesh), DEBUG_COLORS.bbox);
+  helper.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
+  debugStatic.add(helper);
 
   return { group, size:new THREE.Vector3(W,H,D) };
 }
 
-// ============================= Collision World ============================
-function createOrUpdateHitboxOverlay(mergedGeom){
-  // Bestehende Lines entfernen
-  if (worldHitboxLines){
-    debugStatic.remove(worldHitboxLines);
-    worldHitboxLines.geometry?.dispose?.();
-    worldHitboxLines.material?.dispose?.();
-    worldHitboxLines = null;
-  }
-  // Aus der echten Kollisionsgeometrie ein Linien-Overlay bauen
-  // Du kannst zwischen Wireframe und Edges wählen. Edges ist meist ruhiger:
-  // const edges = new THREE.EdgesGeometry(mergedGeom, 1);
-  // worldHitboxLines = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: DEBUG_COLORS.bbox }));
-  const wf = new THREE.WireframeGeometry(mergedGeom);
-  worldHitboxLines = new THREE.LineSegments(wf, new THREE.LineBasicMaterial({ color: DEBUG_COLORS.bbox }));
-  worldHitboxLines.frustumCulled = false;
-  worldHitboxLines.visible = DEBUG.ENABLED && DEBUG.SHOW_HITBOXES;
-  debugStatic.add(worldHitboxLines);
-}
 
+// ============================= Collision World ============================
 function buildWorldCollision(){
   if(!_collisionGeoms.length) return console.warn("Keine Kollisionsgeometrie gesammelt!");
   const merged = mergeGeometries(_collisionGeoms, false);
   merged.computeBoundsTree();
-
   if(worldCollisionMesh){
     scene.remove(worldCollisionMesh);
     worldCollisionMesh.geometry?.dispose?.();
   }
-
   worldCollisionMesh = new THREE.Mesh(merged, new THREE.MeshBasicMaterial({ visible:false }));
   scene.add(worldCollisionMesh);
 
-  // BVH-Helfer optional
   if(DEBUG.SHOW_BVH){
     worldBVHHelper && scene.remove(worldBVHHelper);
     worldBVHHelper = new MeshBVHHelper(worldCollisionMesh, 12);
-    worldBVHHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_BVH;
+    worldBVHHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
     scene.add(worldBVHHelper);
   }
-
-  // ECHTE Hitbox-Overlay-Linien basierend auf dem finalen Kollisionsmesh
-  createOrUpdateHitboxOverlay(merged);
 }
+
 
 // ============================= Snap/Collision ==============================
 function raycastDownToSurface(origin, maxDist=60){
@@ -746,46 +719,67 @@ function raycastDownToSurface(origin, maxDist=60){
   }
   return null;
 }
-function alignCheckpointsToSurface(){
-  for(const cp of checkpoints){
-    const hit = raycastDownToSurface(cp.pos, 80);
-    if(hit){
-      cp.pos.set(hit.point.x, hit.point.y + (SETTINGS.playerHeight * 0.5) + Math.max(0.02, SKIN_WIDTH), hit.point.z);
+function alignCheckpointsToSurface() {
+  for (let i = 0; i < checkpoints.length; i++) {
+    const cpObj = checkpoints[i];
+    const cp = cpObj.pos;
+
+    const hit = raycastDownToSurface(cp, 80);
+    if (hit) {
+      // cp.pos auf den tatsächlichen Boden über dem Treffer setzen (zentriert auf Spielerhöhen-Maß)
+      cp.set(hit.point.x, hit.point.y + (SETTINGS.playerHeight * 0.5) + Math.max(0.02, SKIN_WIDTH), hit.point.z);
     } else {
-      cp.pos.y = Math.max(cp.pos.y, (SETTINGS.playerHeight*0.5) + 0.05);
+      // fallback: sichere Mindesthöhe (falls kein Hit)
+      cp.y = Math.max(cp.y, (SETTINGS.playerHeight * 0.5) + 0.05);
     }
+
+    // Flagge erzeugen oder aktualisieren (so bleibt sie synchron mit cp.pos)
+
+if (!cpObj.flagGroup) {
+  const flagGroup = new THREE.Group();
+
+  // GLB Flagge laden
+  const loader = new GLTFLoader();
+  loader.load('Flag.glb', (gltf) => {
+    const flagModel = gltf.scene;
+
+    // Positionierung passend zum Mast
+    flagModel.position.set(-0.2, -0.8 , 0); 
+    flagModel.rotation.y = Math.PI / 2; 
+
+    flagGroup.add(flagModel);
+  }, undefined, (error) => {
+    console.error("Fehler beim Laden der Flagge:", error);
+  });
+
+  flagGroup.userData.__isCheckpointFlag = true;
+  scene.add(flagGroup);
+  cpObj.flagGroup = flagGroup;
+}
+
+    // immer Position an cp.pos angleichen
+    cpObj.flagGroup.position.copy(cp);
   }
 }
+
+
 
 // ============================= Math Helpers ================================
 const _u = new THREE.Vector3(), _v = new THREE.Vector3(), _w = new THREE.Vector3();
 const _c1 = new THREE.Vector3(), _c2 = new THREE.Vector3();
 function closestPointsSegmentSegment(p1,q1,p2,q2, out1, out2){
-  _u.subVectors(q1, p1);
-  _v.subVectors(q2, p2);
-  _w.subVectors(p1, p2);
+  _u.subVectors(q1, p1); _v.subVectors(q2, p2); _w.subVectors(p1, p2);
   const a=_u.dot(_u), b=_u.dot(_v), c=_v.dot(_v), d=_u.dot(_w), e=_v.dot(_w);
   const D = a*c - b*b, EPS = 1e-9;
   let sc, sN, sD = D, tc, tN, tD = D;
-  if (D < EPS){
-    sN = 0; sD = 1; tN = e; tD = c;
-  } else {
-    sN = b*e - c*d; tN = a*e - b*d;
-    if (sN < 0){ sN = 0; tN = e; tD = c; }
-    else if (sN > sD){ sN = sD; tN = e + b; tD = c; }
-  }
-  if (tN < 0){
-    tN = 0;
-    if (-d < 0) sc = 0;
-    else if (-d > a) sc = 1;
-    else sc = -d / a;
-  } else if (tN > tD){
-    tN = tD;
-    const tmp = (-d + b);
-    if (tmp < 0) sc = 0;
-    else if (tmp > a) sc = 1;
-    else sc = tmp / a;
-  } else sc = (Math.abs(sD) < EPS ? 0 : sN / sD);
+
+  if (D < EPS){ sN = 0; sD = 1; tN = e; tD = c; }
+  else { sN = b*e - c*d; tN = a*e - b*d; if (sN < 0){ sN = 0; tN = e; tD = c; } else if (sN > sD){ sN = sD; tN = e + b; tD = c; } }
+
+  if (tN < 0){ tN = 0; if (-d < 0) sc = 0; else if (-d > a) sc = 1; else sc = -d / a; }
+  else if (tN > tD){ tN = tD; const tmp = (-d + b); if (tmp < 0) sc = 0; else if (tmp > a) sc = 1; else sc = tmp / a; }
+  else sc = (Math.abs(sD) < EPS ? 0 : sN / sD);
+
   tc = (Math.abs(tD) < EPS ? 0 : tN / tD);
   out1.copy(_u).multiplyScalar(sc).add(p1);
   out2.copy(_v).multiplyScalar(tc);
@@ -798,47 +792,38 @@ const _tmpP = new THREE.Vector3();
 const _tmpQ = new THREE.Vector3();
 const _pTri = new THREE.Vector3();
 const _pSeg = new THREE.Vector3();
+
 function segmentTriangleClosestPoints(segStart, segEnd, a, b, c, outTri, outSeg){
   _tri.set(a,b,c);
   _tri.getNormal(_nrm).normalize();
+
   const da = _nrm.dot(_tmpP.copy(segStart).sub(a));
   const db = _nrm.dot(_tmpQ.copy(segEnd).sub(a));
   const dir = _tmpQ.copy(segEnd).sub(segStart);
+
   let minDistSq = Infinity;
 
   if (da*db <= 0){
     const t = da / (da - db);
     const p = _tmpP.copy(segStart).addScaledVector(dir, clamp(t,0,1));
-    if (_tri.containsPoint(p)){
-      outTri.copy(p);
-      outSeg.copy(p);
-      return 0.0;
-    }
+    if (_tri.containsPoint(p)){ outTri.copy(p); outSeg.copy(p); return 0.0; }
   }
+
   const qa = _tri.closestPointToPoint(segStart, _tmpQ);
   let dSq = segStart.distanceToSquared(qa);
-  if (dSq < minDistSq){
-    minDistSq = dSq;
-    outTri.copy(qa);
-    outSeg.copy(segStart);
-  }
+  if (dSq < minDistSq){ minDistSq = dSq; outTri.copy(qa); outSeg.copy(segStart); }
+
   const qb = _tri.closestPointToPoint(segEnd, _tmpQ);
   dSq = segEnd.distanceToSquared(qb);
-  if (dSq < minDistSq){
-    minDistSq = dSq;
-    outTri.copy(qb);
-    outSeg.copy(segEnd);
-  }
+  if (dSq < minDistSq){ minDistSq = dSq; outTri.copy(qb); outSeg.copy(segEnd); }
+
   for (const [e1,e2] of [[a,b],[b,c],[c,a]]){
     dSq = closestPointsSegmentSegment(segStart, segEnd, e1, e2, _c1, _c2)**2;
-    if (dSq < minDistSq){
-      minDistSq = dSq;
-      outSeg.copy(_c1);
-      outTri.copy(_c2);
-    }
+    if (dSq < minDistSq){ minDistSq = dSq; outSeg.copy(_c1); outTri.copy(_c2); }
   }
   return Math.sqrt(minDistSq);
 }
+
 
 // ============================= Capsule vs World ============================
 const _capsuleSphere = new THREE.Sphere();
@@ -848,8 +833,10 @@ const _tempNormal = new THREE.Vector3();
 
 function collideCapsuleWithWorld(capsule, velocity){
   if(!worldCollisionMesh) return { collided:false, onGround:false };
+
   const geom = worldCollisionMesh.geometry;
   _tempMatrix.copy(worldCollisionMesh.matrixWorld);
+
   let collided = false, onGround = false;
 
   const segLen = capsule.start.distanceTo(capsule.end);
@@ -870,21 +857,26 @@ function collideCapsuleWithWorld(capsule, velocity){
         const a = new THREE.Vector3().copy(tri.a).applyMatrix4(_tempMatrix);
         const b = new THREE.Vector3().copy(tri.b).applyMatrix4(_tempMatrix);
         const c = new THREE.Vector3().copy(tri.c).applyMatrix4(_tempMatrix);
+
         const dist = segmentTriangleClosestPoints(capsule.start, capsule.end, a, b, c, _pTri, _pSeg);
         if (dist < rEff){
           _tempNormal.copy(new THREE.Triangle(a,b,c).getNormal(new THREE.Vector3())).normalize();
+
           const depth = (rEff - dist) + SKIN_WIDTH;
           const dir = _pSeg.clone().sub(_pTri);
           const len = Math.max(dir.length(), 1e-8);
           dir.divideScalar(len);
+
           capsule.start.addScaledVector(dir, depth);
           capsule.end.addScaledVector(dir, depth);
+
           _capsuleCenter.copy(capsule.start).add(capsule.end).multiplyScalar(0.5);
           _capsuleSphere.center.copy(_capsuleCenter);
+
           contacts.push(_tempNormal.clone());
           if (_tempNormal.y > WALKABLE_NORMAL_Y) onGround = true;
-          collided = true;
-          any = true;
+
+          collided = true; any = true;
         }
         return false;
       }
@@ -894,30 +886,31 @@ function collideCapsuleWithWorld(capsule, velocity){
       const vn = velocity.dot(n);
       if (vn < 0) velocity.addScaledVector(n, -vn);
     }
+
     if(!any) break;
   }
   return { collided, onGround };
 }
-
 function snapCapsuleToGround(capsule, maxDist=GROUND_SNAP_MAX){
   if(!worldCollisionMesh) return false;
+
   const center = new THREE.Vector3().addVectors(capsule.start, capsule.end).multiplyScalar(0.5);
   const halfSeg = capsule.end.clone().sub(capsule.start).length() * 0.5;
-  const rayOrigin = center.clone();
-  rayOrigin.y += Math.min(0.3, halfSeg);
 
+  const rayOrigin = center.clone(); rayOrigin.y += Math.min(0.3, halfSeg);
   const ray = new THREE.Raycaster(rayOrigin, new THREE.Vector3(0,-1,0), 0, halfSeg + maxDist + capsule.radius + 0.05);
   const hits = ray.intersectObject(worldCollisionMesh, true);
   for (const h of hits){
     if (!h.face) continue;
     const n = h.face.normal.clone().applyMatrix3(new THREE.Matrix3().getNormalMatrix(h.object.matrixWorld)).normalize();
     if (n.y <= WALKABLE_NORMAL_Y) continue;
+
     const bottomY = capsule.start.y;
     const desiredBottomY = h.point.y + capsule.radius + SKIN_WIDTH;
     const deltaY = desiredBottomY - bottomY;
     if (deltaY >= -0.02 && deltaY <= (maxDist + 0.02)){
       capsule.start.y += deltaY;
-      capsule.end.y += deltaY;
+      capsule.end.y   += deltaY;
       return true;
     }
     break;
@@ -925,17 +918,16 @@ function snapCapsuleToGround(capsule, maxDist=GROUND_SNAP_MAX){
   return false;
 }
 
+
 // ============================= Player ======================================
 class PlayerController{
   constructor(){
-    this.group=new THREE.Group();
-    scene.add(this.group);
+    this.group=new THREE.Group(); scene.add(this.group);
     this.velocity=new THREE.Vector3();
-    this.radius=SETTINGS.playerRadius;
-    this.height=SETTINGS.playerHeight;
+    this.radius=SETTINGS.playerRadius; this.height=SETTINGS.playerHeight;
 
     const start = new THREE.Vector3(0, this.radius, 0);
-    const end = new THREE.Vector3(0, this.height - this.radius, 0);
+    const end   = new THREE.Vector3(0, this.height - this.radius, 0);
     this.capsule = new Capsule(start.clone(), end.clone(), this.radius);
 
     this.capsuleHelper = new THREE.Mesh(
@@ -946,17 +938,16 @@ class PlayerController{
     debugStatic.add(this.capsuleHelper);
 
     this.heading=0;
-    this.model=null;
-    this.mixer=null;
+    this.model=null; this.mixer=null;
     this.actions = {};
     this.anim = { idle:null, move:null, jumpStart:null, fall:null, land:null, current:null };
-
     this._justJumped=false;
-    this.onGround=false;
-    this.wasOnGround=false;
+    this.onGround=false; this.wasOnGround=false;
     this._landLock=0;
+
     this.maxAirJumps = SETTINGS.maxAirJumps;
     this.airJumpsLeft = this.maxAirJumps;
+
     // Coyote + Jump-Buffer
     this.coyote = 0;
     this.jumpBuf = 0;
@@ -976,15 +967,18 @@ class PlayerController{
     }
     return null;
   }
+
   _setupAnimations(clips, root){
     if(!clips?.length) return;
     this.mixer = new THREE.AnimationMixer(root);
-    const idleClip = this._findClip(clips, ["idle","a_idle","idle01","idle_01","rest","stand"]);
-    const walkClip = this._findClip(clips, ["walk","move","locomotion"]);
-    const runClip  = this._findClip(clips, ["run","jog"]);
-    const jumpClip = this._findClip(clips, ["jump_start","jumpstart","jump","takeoff"]);
-    const fallClip = this._findClip(clips, ["fall","falling","air","jump_loop","in_air"]);
-    const landClip = this._findClip(clips, ["land","landing","jump_end","jumpend"]);
+
+    const idleClip  = this._findClip(clips, ["idle","a_idle","idle01","idle_01","rest","stand"]);
+    const walkClip  = this._findClip(clips, ["walk","move","locomotion"]);
+    const runClip   = this._findClip(clips, ["run","jog"]);
+    const jumpClip  = this._findClip(clips, ["jump_start","jumpstart","jump","takeoff"]);
+    const fallClip  = this._findClip(clips, ["fall","falling","air","jump_loop","in_air"]);
+    const landClip  = this._findClip(clips, ["land","landing","jump_end","jumpend"]);
+
     const A = this.actions;
     if(idleClip) A.idle = this.mixer.clipAction(idleClip).setLoop(THREE.LoopRepeat);
     if(walkClip) A.walk = this.mixer.clipAction(walkClip).setLoop(THREE.LoopRepeat);
@@ -993,32 +987,29 @@ class PlayerController{
     if(fallClip) A.fall = this.mixer.clipAction(fallClip).setLoop(THREE.LoopRepeat);
     if(landClip){ A.land = this.mixer.clipAction(landClip); A.land.setLoop(THREE.LoopOnce); A.land.clampWhenFinished = true; }
 
-    this.anim.idle = A.idle || A.walk || A.run;
-    this.anim.move = A.run || A.walk || A.idle;
+    this.anim.idle      = A.idle || A.walk || A.run;
+    this.anim.move      = A.run  || A.walk || A.idle;
     this.anim.jumpStart = A.jump || null;
-    this.anim.fall = A.fall || A.jump || this.anim.move;
-    this.anim.land = A.land || null;
+    this.anim.fall      = A.fall || A.jump || this.anim.move;
+    this.anim.land      = A.land || null;
+
     this._playAction(this.anim.idle, 0.0);
   }
+
   _playAction(action, fade=0.2){
     if(!action || this.anim.current === action) return;
     action.reset().play();
     if(this.anim.current) this.anim.current.crossFadeTo(action, fade, false);
     this.anim.current = action;
   }
+
   _playOneShot(action, fade=0.12, onDone){
     if(!action){ onDone && onDone(); return; }
-    action.reset().setLoop(THREE.LoopOnce);
-    action.clampWhenFinished = true;
-    action.play();
+    action.reset().setLoop(THREE.LoopOnce); action.clampWhenFinished = true; action.play();
     if(this.anim.current && this.anim.current!==action) this.anim.current.crossFadeTo(action, fade, false);
     this.anim.current = action;
-    const handler = (e)=>{
-      if(e.action===action){
-        this.mixer.removeEventListener("finished", handler);
-        onDone && onDone();
-      }
-    };
+
+    const handler = (e)=>{ if(e.action===action){ this.mixer.removeEventListener("finished", handler); onDone && onDone(); } };
     this.mixer.addEventListener("finished", handler);
   }
 
@@ -1035,22 +1026,19 @@ class PlayerController{
         o.castShadow=o.receiveShadow=true;
         if(o.material){
           o.material.side=THREE.FrontSide;
-          if(o.material.transparent && o.material.opacity===0){
-            o.material.opacity=1;
-            o.material.transparent=false;
-          }
+          if(o.material.transparent && o.material.opacity===0){ o.material.opacity=1; o.material.transparent=false; }
         }
       });
+
       root.updateMatrixWorld(true);
       const tmp = computeBBox(root);
       const s = (this.height*0.92) / Math.max(tmp.size.y, 0.01);
-      root.scale.setScalar(s);
-      root.updateMatrixWorld(true);
+      root.scale.setScalar(s); root.updateMatrixWorld(true);
       const box2 = new THREE.Box3().setFromObject(root);
       const center = new THREE.Vector3(); box2.getCenter(center);
       root.position.sub(center);
-      this.model=root;
-      this.group.add(root);
+
+      this.model=root; this.group.add(root);
       this._setupAnimations(g.animations||[], root);
       setStatus("Ready! Businessman geladen ✨");
     }catch(e){
@@ -1063,6 +1051,7 @@ class PlayerController{
       this.group.add(body);
       setStatus("Ready (Fallback-Char). Prüfe Pfad/Kompression)!");
     }
+
     const cp = checkpoints[0]?.pos || new THREE.Vector3(0,1.4,0);
     this.teleportTo(cp);
   }
@@ -1096,6 +1085,7 @@ class PlayerController{
     const l = (keys.has("a") || keys.has("arrowleft"));
     const r = (keys.has("d") || keys.has("arrowright"));
     const sprint = keys.has("shift");
+
     const wish = new THREE.Vector3((r?1:0)-(l?1:0), 0, (b?1:0)-(f?1:0));
     if (wish.lengthSq()>0){
       wish.normalize().applyQuaternion(
@@ -1106,6 +1096,7 @@ class PlayerController{
     const speedTarget = SETTINGS.moveSpeed * (sprint?SETTINGS.sprintMult:1);
     const desiredX = wish.x * speedTarget, desiredZ = wish.z * speedTarget;
     const accel = this.onGround ? 22 : 10*SETTINGS.airControl;
+
     this.velocity.x = THREE.MathUtils.damp(this.velocity.x, desiredX, accel, dt);
     this.velocity.z = THREE.MathUtils.damp(this.velocity.z, desiredZ, accel, dt);
 
@@ -1139,7 +1130,7 @@ class PlayerController{
     }
 
     // Coyote-/Buffer-Timer
-    this.coyote = this.onGround ? SETTINGS.coyoteTime : Math.max(0, this.coyote - dt);
+    this.coyote  = this.onGround ? SETTINGS.coyoteTime : Math.max(0, this.coyote - dt);
     this.jumpBuf = Math.max(0, this.jumpBuf - dt);
 
     // Sprung (inkl. Double-Jump)
@@ -1148,10 +1139,9 @@ class PlayerController{
         this.velocity.y = SETTINGS.jumpSpeed;
         this._justJumped = true;
         this.airJumpsLeft = this.maxAirJumps;
-        this.jumpBuf = 0;
-        this.coyote = 0;
+        this.jumpBuf = 0; this.coyote = 0;
       } else if (this.airJumpsLeft > 0){
-        const base = SETTINGS.jumpSpeed * SETTINGS.doubleJumpMult;
+        const base  = SETTINGS.jumpSpeed * SETTINGS.doubleJumpMult;
         const carry = Math.max(this.velocity.y, 0) * 0.25;
         this.velocity.y = Math.max(this.velocity.y + base * 0.85, base + carry);
         this._justJumped = true;
@@ -1180,6 +1170,7 @@ class PlayerController{
         const base = Math.max(0.01, SETTINGS.moveSpeed);
         this.anim.move.timeScale = THREE.MathUtils.clamp(hSpeed / base, 0.75, 1.5);
       }
+
       if (!this.wasOnGround && this.onGround){
         this.airJumpsLeft = this.maxAirJumps;
         this._landLock = 0.25;
@@ -1205,6 +1196,7 @@ class PlayerController{
         if (hSpeed>0.6 && this.anim.move) this._playAction(this.anim.move, 0.12);
         else if (this.anim.idle) this._playAction(this.anim.idle, 0.15);
       }
+
       if (this._landLock>0) this._landLock = Math.max(0, this._landLock - dt);
       this.mixer.update(dt);
     }
@@ -1221,19 +1213,21 @@ class PlayerController{
   }
 }
 
+
 // ============================= Camera & Input ==============================
 let camYaw=0, camPitch=0.12;
 
 window.addEventListener("mousemove", e => {
   if (body.getAttribute("data-screen") !== "game") return;
+
   const dx = (typeof e.movementX === "number") ? e.movementX : ((lastX===null)?0:(e.clientX - lastX));
   const dy = (typeof e.movementY === "number") ? e.movementY : ((lastY===null)?0:(e.clientY - lastY));
-  lastX = e.clientX;
-  lastY = e.clientY;
+  lastX = e.clientX; lastY = e.clientY;
+
   const base = 0.003 * (INPUT?.mouseSens ?? 1.0);
-  camYaw -= dx * base;
+  camYaw   -= dx * base;
   camPitch -= dy * base;
-  camPitch = clamp(camPitch, -1.2, 1.2);
+  camPitch  = clamp(camPitch, -1.2, 1.2);
 });
 
 window.addEventListener("wheel", e => {
@@ -1245,20 +1239,11 @@ window.addEventListener("keydown", e=>{
   keys.add(k);
   if(k===" "||k==="space") player?.queueJump();
   if(k==="r") player?.respawn();
-
-  if(k==="f1"){ DEBUG.ENABLED = !DEBUG.ENABLED; }
+  if(k==="f1"){ DEBUG.ENABLED     = !DEBUG.ENABLED; }
   if(k==="f2"){ DEBUG.SHOW_STATIC = !DEBUG.SHOW_STATIC; }
-  if(k==="f3"){ // Toggle echte Hitbox-Overlay-Linien
-    DEBUG.SHOW_HITBOXES = !DEBUG.SHOW_HITBOXES;
-    if (worldHitboxLines) worldHitboxLines.visible = DEBUG.ENABLED && DEBUG.SHOW_HITBOXES;
-  }
+  if(k==="f3"){ DEBUG.SHOW_BVH    = !DEBUG.SHOW_BVH; worldBVHHelper && (worldBVHHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC && DEBUG.SHOW_BVH); }
   if(k==="f4"){ DEBUG.SHOW_CAPSULE= !DEBUG.SHOW_CAPSULE; }
-  if(k==="f6"){ // optional: BVH-Helper sichtbar
-    DEBUG.SHOW_BVH = !DEBUG.SHOW_BVH;
-    if (worldBVHHelper) worldBVHHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_BVH;
-  }
 });
-
 window.addEventListener("keyup", e=> keys.delete(e.key.toLowerCase()));
 
 window.addEventListener("resize", ()=>{
@@ -1267,16 +1252,13 @@ window.addEventListener("resize", ()=>{
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+
 // ============================= Boot / Start ================================
 let gameStarted = false;
 
 async function startGame(){
   ensurePointerLock(); // gleich beim Start-Klick anfragen
-  if (gameStarted){
-    setScreen("game");
-    setPaused(false);
-    return;
-  }
+  if (gameStarted){ setScreen("game"); setPaused(false); return; }
   gameStarted = true;
 
   setupLoaders();
@@ -1288,8 +1270,8 @@ async function startGame(){
   await loadSkybox();
 
   makeGround();
-
   setStatus("Lade Plattform-Assets…");
+
   const MODEL_PACK = await loadModelPack(MODEL_PACK_PATHS);
   await makeITWorld(MODEL_PACK);
 
@@ -1303,19 +1285,48 @@ async function startGame(){
   runLoop();
 }
 
+
 // ============================= Loop / Update ===============================
 const camTarget=new THREE.Vector3();
 
-function updateCheckpoint(){
-  if(!player) return;
-  let closest=activeCheckpointIndex, best=Infinity;
-  for(let i=0;i<checkpoints.length;i++){
-    const d=checkpoints[i].pos.distanceToSquared(player.position);
-    if(d<best){ best=d; closest=i; }
+function updateCheckpoint() {
+  if (!player || !checkpoints.length) return;
+
+  const pPos = player.position;
+  const playerCenterY = pPos.y;
+
+  // Parameter: horizontaler Radius und vertikale Toleranz
+  const horizThresh = 4.5; // horizontale Reichweite in Metern
+  const horizThreshSq = horizThresh * horizThresh;
+  const verticalTol = 0.25; // der Spieler darf bis zu 0.25m unterhalb des cp.center sein, sonst zählt es nicht
+
+  // Suche alle erreichbaren Checkpoints (in XZ und nicht deutlich darunter)
+  let bestIndex = -1;
+  let bestY = -Infinity;
+  for (let i = 0; i < checkpoints.length; i++) {
+    const cp = checkpoints[i];
+    if (!cp?.pos) continue;
+
+    const dx = pPos.x - cp.pos.x;
+    const dz = pPos.z - cp.pos.z;
+    const distSqXZ = dx * dx + dz * dz;
+    if (distSqXZ > horizThreshSq) continue; // zu weit weg in X/Z
+
+    if (playerCenterY < cp.pos.y - verticalTol) continue; // deutlich unterhalb -> nicht zählt
+
+    // Wir wählen den erreichbaren Checkpoint mit der höchsten Y-Koordinate
+    if (cp.pos.y > bestY) {
+      bestY = cp.pos.y;
+      bestIndex = i;
+    }
   }
-  if(closest!==activeCheckpointIndex && Math.sqrt(best)<4.5){
-    activeCheckpointIndex=closest;
-    setStatus(`Checkpoint ${activeCheckpointIndex+1}/${checkpoints.length} erreicht`);
+
+  const currentActiveY = checkpoints[activeCheckpointIndex]?.pos?.y ?? -Infinity;
+
+  // Nur updaten, wenn der neue (erreichbare) Checkpoint höher ist als der aktuelle aktive
+  if (bestIndex !== -1 && bestY > currentActiveY + 1e-6) {
+    activeCheckpointIndex = bestIndex;
+    setStatus(`Checkpoint ${activeCheckpointIndex + 1}/${checkpoints.length} erreicht`);
   }
 }
 
@@ -1328,12 +1339,8 @@ function updateCamera(dt){
   camTarget.copy(player.position).add(new THREE.Vector3(0,1.2,0));
   camera.lookAt(camTarget);
 }
-
 let tAccum=0;
-const updateLighting = (dt) => {
-  tAccum += dt*0.1;
-  sun.position.set(Math.cos(tAccum)*10, 10+Math.sin(tAccum)*2, 8);
-};
+const updateLighting = (dt) => { tAccum += dt*0.1; sun.position.set(Math.cos(tAccum)*10, 10+Math.sin(tAccum)*2, 8); };
 
 function runLoop(){
   renderer.setAnimationLoop(()=>{
@@ -1346,11 +1353,9 @@ function runLoop(){
     }
     updateCamera(dt);
 
-    // Debug Sichtbarkeiten
-    debugStatic.visible = DEBUG.ENABLED && (DEBUG.SHOW_STATIC || DEBUG.SHOW_CAPSULE || DEBUG.SHOW_HITBOXES || DEBUG.SHOW_BVH);
-    if(worldBVHHelper) worldBVHHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_BVH;
+    debugStatic.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
+    if(worldBVHHelper) worldBVHHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC && DEBUG.SHOW_BVH;
     if(player && player.capsuleHelper) player.capsuleHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_CAPSULE;
-    if(worldHitboxLines) worldHitboxLines.visible = DEBUG.ENABLED && DEBUG.SHOW_HITBOXES;
 
     renderer.render(scene, camera);
   });
