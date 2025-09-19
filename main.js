@@ -660,10 +660,6 @@ function placeModelPlatform(modelDef, { position=new THREE.Vector3(), yaw=0, tar
 
   root.traverse(o=>{ if(o.isMesh) bakeMeshToCollision(o); });
 
-  const helper = new THREE.Box3Helper(new THREE.Box3().setFromObject(root), DEBUG_COLORS.bbox);
-  helper.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
-  debugStatic.add(helper);
-
   return { group, size: tmp.size.clone() };
 }
 function makeBoxPlatform(w=4, h=0.3, d=2, pos=new THREE.Vector3(), yaw=0){
@@ -673,31 +669,54 @@ function makeBoxPlatform(w=4, h=0.3, d=2, pos=new THREE.Vector3(), yaw=0){
   mesh.castShadow=mesh.receiveShadow=true; mesh.position.y=H*0.5; group.add(mesh); scene.add(group);
   bakeMeshToCollision(mesh);
 
-  const helper = new THREE.Box3Helper(new THREE.Box3().setFromObject(mesh), DEBUG_COLORS.bbox);
-  helper.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
-  debugStatic.add(helper);
-
   return { group, size:new THREE.Vector3(W,H,D) };
 }
 
 
 // ============================= Collision World ============================
+let collisionDebugMesh = null;  // NEU: global für Toggle
 function buildWorldCollision(){
   if(!_collisionGeoms.length) return console.warn("Keine Kollisionsgeometrie gesammelt!");
+  // Mergen & BVH bauen (wie gehabt)
   const merged = mergeGeometries(_collisionGeoms, false);
   merged.computeBoundsTree();
+
+  // Kollisionsmesh (unsichtbar, nur fürs Raycast/ShapeCast)
   if(worldCollisionMesh){
     scene.remove(worldCollisionMesh);
     worldCollisionMesh.geometry?.dispose?.();
   }
+
   worldCollisionMesh = new THREE.Mesh(merged, new THREE.MeshBasicMaterial({ visible:false }));
   scene.add(worldCollisionMesh);
+  // --- NEU: echtes Hitbox-Overlay sichtbar machen --
+  // (gleiche Geometrie, aber transparentes Drahtgitter)
+
+  if (collisionDebugMesh){
+    debugStatic.remove(collisionDebugMesh);
+    collisionDebugMesh.geometry?.dispose?.();
+    collisionDebugMesh.material?.dispose?.();
+  }
+
+  const dbgGeom = merged.clone(); // identisch zur Kollisionsgeometrie!
+  const dbgMat  = new THREE.MeshBasicMaterial({
+    color: DEBUG_COLORS.bbox,
+    wireframe: true,
+    transparent: true,
+    opacity: 0.35,
+    depthTest: false
+  });
+
+  collisionDebugMesh = new THREE.Mesh(dbgGeom, dbgMat);
+  collisionDebugMesh.renderOrder = 999; // über allem
+  debugStatic.add(collisionDebugMesh);
+  // Optional: BVH-Hilfslinien (wie gehabt, nur sichtbar falls gewünscht)
 
   if(DEBUG.SHOW_BVH){
     worldBVHHelper && scene.remove(worldBVHHelper);
     worldBVHHelper = new MeshBVHHelper(worldCollisionMesh, 12);
-    worldBVHHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
-    scene.add(worldBVHHelper);
+    debugStatic.add(worldBVHHelper);
+    worldBVHHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC && DEBUG.SHOW_BVH;
   }
 }
 
@@ -1354,8 +1373,9 @@ function runLoop(){
     updateCamera(dt);
 
     debugStatic.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
-    if(worldBVHHelper) worldBVHHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC && DEBUG.SHOW_BVH;
-    if(player && player.capsuleHelper) player.capsuleHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_CAPSULE;
+    if (worldBVHHelper)        worldBVHHelper.visible        = DEBUG.ENABLED && DEBUG.SHOW_STATIC && DEBUG.SHOW_BVH;
+    if (player?.capsuleHelper) player.capsuleHelper.visible  = DEBUG.ENABLED && DEBUG.SHOW_CAPSULE;
+    if (collisionDebugMesh)    collisionDebugMesh.visible    = DEBUG.ENABLED && DEBUG.SHOW_STATIC; // echte Hitboxen sichtbar
 
     renderer.render(scene, camera);
   });
