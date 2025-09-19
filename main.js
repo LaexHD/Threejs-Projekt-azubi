@@ -372,13 +372,23 @@ const diagRadius = (size) => 0.5 * Math.hypot(size.x, size.z);
 function bakeMeshToCollision(mesh){
   const g0 = mesh.geometry;
   if(!g0?.isBufferGeometry) return;
+
+  // Geometrie duplizieren und entindizieren
   let g = g0.clone();
   if (g.index) g = g.toNonIndexed();
+
+  // Weltmatrix inkl. Rotation/Scale/Position anwenden
   mesh.updateWorldMatrix(true,false);
   g.applyMatrix4(mesh.matrixWorld);
-  for(const n of Object.keys(g.attributes)){ if(n!=="position") g.deleteAttribute(n); }
+
+  // Alle unnötigen Attribute löschen
+  for(const n of Object.keys(g.attributes)){
+    if(n!=="position") g.deleteAttribute(n);
+  }
+
   _collisionGeoms.push(g);
 }
+
 
 
 // ============================= Boden: Inselwelt ============================
@@ -492,24 +502,34 @@ async function makeITWorld(modelPack){
     return { model:mdl, size, targetW:w, cat };
   };
 
-  const place = (sel, pos, yaw=0) => {
-    const res = sel.model
-      ? placeModelPlatform(sel.model, { position: pos, yaw, targetWidth: sel.targetW })
-      : makeBoxPlatform(sel.size.x/PLATFORM_SIZE_MULT, sel.size.y/(KEEP_Y_SCALE?1:PLATFORM_SIZE_MULT), sel.size.z/PLATFORM_SIZE_MULT, pos, yaw);
+function place(sel, pos, yaw=0) {
+  const res = sel.model
+    ? placeModelPlatform(sel.model, { position: pos, yaw, targetWidth: sel.targetW })
+    : makeBoxPlatform(sel.size.x/PLATFORM_SIZE_MULT, sel.size.y/(KEEP_Y_SCALE?1:PLATFORM_SIZE_MULT), sel.size.z/PLATFORM_SIZE_MULT, pos, yaw);
 
-    // Flache Objekte horizontal legen
-    if(["keyboard","monitor","mouse","phone"].includes(sel.cat) || (sel.size.y < sel.size.x*0.5 && sel.size.y < sel.size.z*0.5)){
-      res.group.rotation.x = -Math.PI/2; // flach
-    }
+  // deine Rotationsanpassungen
+  if(["keyboard"].includes(sel.cat)) {
+    res.group.rotation.y = -3; // flach
+  }
+  if(["monitor"].includes(sel.cat)) {
+    res.group.rotation.x = -5;
+    res.group.rotation.y = -5; // flach
+  }
 
-    // BoundingBox nach allen Transformationen berechnen (inkl. Rotation, Position, Scale)
-    res.bbox = new THREE.Box3().setFromObject(res.group);
+  // WICHTIG: nach allen Transformationen Kollisionsgeometrie erzeugen
+  res.group.traverse(o=>{
+    if(o.isMesh) bakeMeshToCollision(o);
+  });
 
-    return res;
-  };
+  // BoundingBox nach allen Transformationen berechnen
+  res.bbox = new THREE.Box3().setFromObject(res.group);
+
+  return res;
+}
+
 
   // Start
-  const startSel = select(["keyboard","desk","laptop","generic"], 1.25 * START_SIZE_MULT);
+  const startSel = select(["keyboard","laptop","generic"], 1.25 * START_SIZE_MULT);
   const startRes = place(startSel, new THREE.Vector3(0,0.2,0));
   checkpoints.push({ pos: roughCheckpointAbove(startRes) });
   let lastCheckpointY = startRes.group.position.y;
