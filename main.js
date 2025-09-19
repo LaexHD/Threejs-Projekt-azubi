@@ -236,6 +236,25 @@ function setupLoaders(){
   gltfLoader.setMeshoptDecoder(MeshoptDecoder);
 }
 
+const CHECKPOINT_FLAGS = {
+  unreached: "Flag.glb",
+  reached:   "Flag green.glb"
+};
+
+async function loadCheckpointFlagGLB(path){
+  const { g } = await loadGLBWithFallback(expandPathCandidates(path));
+  const root = g.scene || g.scenes[0];
+  root.traverse(o=>{
+    if(o.isMesh){
+      o.castShadow = true;
+      o.receiveShadow = true;
+      if(o.material) o.material.side = THREE.FrontSide;
+    }
+  });
+  return root;
+}
+
+
 
 // ============================= Skybox ======================================
 const SKYBOX_FILES = [
@@ -478,12 +497,12 @@ function makeGround(){
 
 
 // ============================= World Build =================================
-// ============================= World Build =================================
 const roughCheckpointAbove = (res, offsetY = 0.1) => {
   const c = res.group.position.clone();
   c.y += res.size.y + SETTINGS.playerHeight * 0.6 + offsetY;
   return c;
 };
+
 
 async function makeITWorld(modelPack) {
   const maxHorizontalReach = 4.0;
@@ -530,6 +549,7 @@ async function makeITWorld(modelPack) {
       res.group.rotation.x = -5;
       res.group.rotation.y = -5;
     }
+    
 
     // Kollisionen nach allen Transformationen backen
     res.group.traverse((o) => {
@@ -714,28 +734,28 @@ function alignCheckpointsToSurface() {
     }
 
     // Flagge erzeugen oder aktualisieren (so bleibt sie synchron mit cp.pos)
-    if (!cpObj.flagGroup) {
-      const flagGroup = new THREE.Group();
 
-      const pole = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.05, 0.05, 1, 8),
-        new THREE.MeshStandardMaterial({ color: 0xaaaaaa, metalness: 0.6, roughness: 0.4 })
-      );
-      pole.position.y = 0.5;
-      flagGroup.add(pole);
+if (!cpObj.flagGroup) {
+  const flagGroup = new THREE.Group();
 
-      const flag = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.6, 0.35),
-        new THREE.MeshStandardMaterial({ color: 0x007aff, side: THREE.DoubleSide })
-      );
-      flag.position.set(0.35, 0.9, 0);
-      flag.rotation.y = Math.PI / 2;
-      flagGroup.add(flag);
+  // GLB Flagge laden
+  const loader = new GLTFLoader();
+  loader.load('Flag.glb', (gltf) => {
+    const flagModel = gltf.scene;
 
-      flagGroup.userData.__isCheckpointFlag = true;
-      scene.add(flagGroup);
-      cpObj.flagGroup = flagGroup;
-    }
+    // Positionierung passend zum Mast
+    flagModel.position.set(-0.2, -0.8 , 0); 
+    flagModel.rotation.y = Math.PI / 2; 
+
+    flagGroup.add(flagModel);
+  }, undefined, (error) => {
+    console.error("Fehler beim Laden der Flagge:", error);
+  });
+
+  flagGroup.userData.__isCheckpointFlag = true;
+  scene.add(flagGroup);
+  cpObj.flagGroup = flagGroup;
+}
 
     // immer Position an cp.pos angleichen
     cpObj.flagGroup.position.copy(cp);
