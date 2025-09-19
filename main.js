@@ -524,149 +524,119 @@ function makeGround(){
 }
 
 // ============================= World Build =================================
-// ============================= World Build =================================
-const roughCheckpointAbove = (res, offsetY = 0.1) => {
+const roughCheckpointAbove = (res, offsetY=0.1) => {
   const c = res.group.position.clone();
   c.y += res.size.y + SETTINGS.playerHeight * 0.6 + offsetY;
   return c;
 };
 
-async function makeITWorld(modelPack) {
+async function makeITWorld(modelPack){
   const maxHorizontalReach = 4.0;
   const maxVerticalRise = 1.2;
 
-  const select = (cats, scaleHint = 1) => {
+  const select = (cats, scaleHint=1) => {
     const cat = cats[Math.floor(Math.random() * cats.length)] || "generic";
     const w = (TARGET_WIDTH_BY_CAT[cat] || TARGET_WIDTH_BY_CAT.generic) * scaleHint;
     const mdl = pickModel(modelPack, [cat]);
-    if (!mdl) {
-      const base = new THREE.Vector3(w, 0.3, Math.max(1.2, w * 0.6));
-      const size = new THREE.Vector3(
-        base.x * PLATFORM_SIZE_MULT,
-        KEEP_Y_SCALE ? base.y : base.y * PLATFORM_SIZE_MULT,
-        base.z * PLATFORM_SIZE_MULT
-      );
-      return { model: null, size, targetW: w, cat };
+    if(!mdl){
+      const base = new THREE.Vector3(w, 0.3, Math.max(1.2, w*0.6));
+      const size = new THREE.Vector3(base.x * PLATFORM_SIZE_MULT, KEEP_Y_SCALE ? base.y : base.y * PLATFORM_SIZE_MULT, base.z * PLATFORM_SIZE_MULT);
+      return { model:null, size, targetW:w, cat };
     }
     const est = scaledSizeFor(mdl, w);
-    const size = new THREE.Vector3(
-      est.x * PLATFORM_SIZE_MULT,
-      KEEP_Y_SCALE ? est.y : est.y * PLATFORM_SIZE_MULT,
-      est.z * PLATFORM_SIZE_MULT
-    );
-    return { model: mdl, size, targetW: w, cat };
+    const size = new THREE.Vector3(est.x * PLATFORM_SIZE_MULT, KEEP_Y_SCALE ? est.y : est.y * PLATFORM_SIZE_MULT, est.z * PLATFORM_SIZE_MULT);
+    return { model:mdl, size, targetW:w, cat };
   };
 
-  function place(sel, pos, yaw = 0) {
+  function place(sel, pos, yaw=0) {
     const res = sel.model
       ? placeModelPlatform(sel.model, { position: pos, yaw, targetWidth: sel.targetW })
-      : makeBoxPlatform(
-          sel.size.x / PLATFORM_SIZE_MULT,
-          sel.size.y / (KEEP_Y_SCALE ? 1 : PLATFORM_SIZE_MULT),
-          sel.size.z / PLATFORM_SIZE_MULT,
-          pos,
-          yaw
-        );
+      : makeBoxPlatform(sel.size.x/PLATFORM_SIZE_MULT, sel.size.y/(KEEP_Y_SCALE?1:PLATFORM_SIZE_MULT), sel.size.z/PLATFORM_SIZE_MULT, pos, yaw);
 
-    // leichte Rotationsanpassungen nach Kategorie
-    if (["keyboard"].includes(sel.cat)) {
-      res.group.rotation.y = -3;
+    // Beispiel-Rotationsanpassungen (optional)
+    if(["keyboard"].includes(sel.cat)) {
+      res.group.rotation.y = -3; // flach
     }
-    if (["monitor"].includes(sel.cat)) {
+    if(["monitor"].includes(sel.cat)) {
       res.group.rotation.x = -5;
-      res.group.rotation.y = -5;
+      res.group.rotation.y = -5; // flach
     }
 
-    // Kollisionen nach allen Transformationen backen
-    res.group.traverse((o) => {
-      if (o.isMesh) bakeMeshToCollision(o);
-    });
+    // WICHTIG: nach allen Transformationen Kollisionsgeometrie erzeugen
+    res.group.traverse(o=>{ if(o.isMesh) bakeMeshToCollision(o); });
 
-    // BoundingBox neu berechnen
-    res.bbox = new THREE.Box3().setFromObject(res.group);
+    // (Entfernt) fake AABB-Helper
 
     return res;
   }
 
-  // --- Startplattform + erster Checkpoint ---
-  const startSel = select(["keyboard", "laptop", "generic"], 1.25 * START_SIZE_MULT);
-  const startRes = place(startSel, new THREE.Vector3(0, 0.2, 0));
+  // Start
+  const startSel = select(["keyboard","laptop","generic"], 1.25 * START_SIZE_MULT);
+  const startRes = place(startSel, new THREE.Vector3(0,0.2,0));
+  checkpoints.push({ pos: roughCheckpointAbove(startRes) });
 
-  // Push initial checkpoint object (pos = Vector3). Flags werden später in alignCheckpointsToSurface erzeugt/aktualisiert.
-  checkpoints.push({ pos: roughCheckpointAbove(startRes), flagGroup: null });
+  let lastCheckpointY = startRes.group.position.y;
 
   const stepsTotal = 50;
-  let angle = 0;
-  let prevCenter = startRes.group.position.clone();
-  let prevSize = startRes.size.clone();
+  let angle = 0, prevCenter = startRes.group.position.clone(), prevSize = startRes.size.clone();
 
-  // checkpoint-control
-  let lastCheckpointY = checkpoints[0].pos.y; // nutze die tatsächliche y des ersten checkpoint-Vector
-  let checkpointCooldown = 0;
-  const minRiseBetweenCheckpoints = 0.5; // Mindest-Höhenzuwachs zwischen Checkpoints
-
-  for (let i = 0; i < stepsTotal; i++) {
-    const difficulty = i / stepsTotal;
+  for(let i=0;i<stepsTotal;i++){
+    const difficulty = i/stepsTotal;
     const scaleHint = THREE.MathUtils.lerp(1.0, 0.75, difficulty);
-    const allCats = [
-      "keyboard",
-      "laptop",
-      "monitor",
-      "server",
-      "computer",
-      "printer",
-      "desk",
-      "chair",
-      "headphones",
-      "mouse",
-    ];
+    const allCats = ["keyboard","laptop","monitor","server","computer","printer","desk","chair","headphones","mouse"];
     const sel = select(allCats, scaleHint);
 
-    // Positionierung
-    angle += (Math.PI / 7) * (0.95 + Math.random() * 0.1);
-    let distCenters =
-      diagRadius(prevSize) +
-      diagRadius(sel.size) +
-      THREE.MathUtils.lerp(1.2, 2.2, difficulty) * (0.9 + Math.random() * 0.2);
-    if (distCenters > maxHorizontalReach) distCenters = maxHorizontalReach;
+    // Winkel für Platzierung
+    angle += (Math.PI/7) * (0.95 + Math.random()*0.1);
+    let distCenters = diagRadius(prevSize) + diagRadius(sel.size) + THREE.MathUtils.lerp(1.2, 2.2, difficulty) * (0.9 + Math.random()*0.2);
+    // Horizontalen Sprung begrenzen
+    if(distCenters > maxHorizontalReach) distCenters = maxHorizontalReach;
 
     const dir = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle));
     let nextCenter = prevCenter.clone().addScaledVector(dir, distCenters);
 
-    // Vertikaler Sprung
-    let rise =
-      THREE.MathUtils.lerp(0.5, maxVerticalRise, difficulty) * (0.9 + Math.random() * 0.2);
-    if (rise > maxVerticalRise) rise = maxVerticalRise;
+    // Vertikalen Sprung begrenzen
+    let rise = THREE.MathUtils.lerp(0.5, maxVerticalRise, difficulty) * (0.9 + Math.random()*0.2);
+    if(rise > maxVerticalRise) rise = maxVerticalRise;
     nextCenter.y = prevCenter.y + rise;
 
-    const yaw = angle + Math.PI + (Math.random() * 0.1 - 0.05);
+    const yaw = angle + Math.PI + (Math.random()*0.1 - 0.05);
     const res = place(sel, nextCenter, yaw);
 
-    // Checkpoint-Logik (nur gelegentlich, mit Mindestabstand in Höhe und Anzahl Plattformen)
-    checkpointCooldown--;
-    const placeChance = 0.10; // 10% Chance, zusätzlich getriggert durch cooldown und minRise
-    const platformCenterY = res.bbox.max.y + 0.05;
+    // Checkpoint: 10% Chance, nur auf Objekt, aufsteigend
+    if(Math.random() < 0.1){
+      const bbox = new THREE.Box3().setFromObject(res.group);
+      const cp = new THREE.Vector3();
+      cp.x = THREE.MathUtils.lerp(bbox.min.x + 0.05, bbox.max.x - 0.05, Math.random());
+      cp.z = THREE.MathUtils.lerp(bbox.min.z + 0.05, bbox.max.z - 0.05, Math.random());
+      const minRise = 0.5;
+      cp.y = Math.max(bbox.max.y + 0.05, lastCheckpointY + minRise);
+      checkpoints.push({ pos: cp });
+      lastCheckpointY = cp.y;
 
-    if (checkpointCooldown <= 0 && Math.random() < placeChance) {
-      // Kandidaten-Position innerhalb der BoundingBox (leicht zufällig, aber sicher innerhalb)
-      const margin = 0.06;
-      const px = THREE.MathUtils.lerp(res.bbox.min.x + margin, res.bbox.max.x - margin, Math.random());
-      const pz = THREE.MathUtils.lerp(res.bbox.min.z + margin, res.bbox.max.z - margin, Math.random());
-      const py = Math.max(platformCenterY, lastCheckpointY + minRiseBetweenCheckpoints);
-
-      const cpVec = new THREE.Vector3(px, py, pz);
-      checkpoints.push({ pos: cpVec, flagGroup: null });
-      lastCheckpointY = cpVec.y;
-      checkpointCooldown = 3; // mindestens 3 Plattformen Abstand
+      // Flagge direkt auf Checkpoint
+      const flagGroup = new THREE.Group();
+      flagGroup.position.copy(cp);
+      const pole = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.05,0.05,2,8),
+        new THREE.MeshStandardMaterial({color:0xaaaaaa,metalness:0.6,roughness:0.4})
+      );
+      pole.position.y = 1;
+      flagGroup.add(pole);
+      const flag = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.8,0.5),
+        new THREE.MeshStandardMaterial({color:0x007aff,side:THREE.DoubleSide})
+      );
+      flag.position.set(0.45,1.5,0);
+      flag.rotation.y = Math.PI;
+      flagGroup.add(flag);
+      scene.add(flagGroup);
     }
 
     prevCenter = nextCenter;
     prevSize = res.size.clone();
   }
-
 }
-
-
 
 // ============================= Platforms / Helpers =========================
 function placeModelPlatform(modelDef, { position=new THREE.Vector3(), yaw=0, targetWidth=2.5 } = {}){
@@ -776,50 +746,16 @@ function raycastDownToSurface(origin, maxDist=60){
   }
   return null;
 }
-function alignCheckpointsToSurface() {
-  for (let i = 0; i < checkpoints.length; i++) {
-    const cpObj = checkpoints[i];
-    const cp = cpObj.pos;
-
-    const hit = raycastDownToSurface(cp, 80);
-    if (hit) {
-      // cp.pos auf den tatsächlichen Boden über dem Treffer setzen (zentriert auf Spielerhöhen-Maß)
-      cp.set(hit.point.x, hit.point.y + (SETTINGS.playerHeight * 0.5) + Math.max(0.02, SKIN_WIDTH), hit.point.z);
+function alignCheckpointsToSurface(){
+  for(const cp of checkpoints){
+    const hit = raycastDownToSurface(cp.pos, 80);
+    if(hit){
+      cp.pos.set(hit.point.x, hit.point.y + (SETTINGS.playerHeight * 0.5) + Math.max(0.02, SKIN_WIDTH), hit.point.z);
     } else {
-      // fallback: sichere Mindesthöhe (falls kein Hit)
-      cp.y = Math.max(cp.y, (SETTINGS.playerHeight * 0.5) + 0.05);
+      cp.pos.y = Math.max(cp.pos.y, (SETTINGS.playerHeight*0.5) + 0.05);
     }
-
-    // Flagge erzeugen oder aktualisieren (so bleibt sie synchron mit cp.pos)
-    if (!cpObj.flagGroup) {
-      const flagGroup = new THREE.Group();
-
-      const pole = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.05, 0.05, 1, 8),
-        new THREE.MeshStandardMaterial({ color: 0xaaaaaa, metalness: 0.6, roughness: 0.4 })
-      );
-      pole.position.y = 0.5;
-      flagGroup.add(pole);
-
-      const flag = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.6, 0.35),
-        new THREE.MeshStandardMaterial({ color: 0x007aff, side: THREE.DoubleSide })
-      );
-      flag.position.set(0.35, 0.9, 0);
-      flag.rotation.y = Math.PI / 2;
-      flagGroup.add(flag);
-
-      flagGroup.userData.__isCheckpointFlag = true;
-      scene.add(flagGroup);
-      cpObj.flagGroup = flagGroup;
-    }
-
-    // immer Position an cp.pos angleichen
-    cpObj.flagGroup.position.copy(cp);
   }
 }
-
-
 
 // ============================= Math Helpers ================================
 const _u = new THREE.Vector3(), _v = new THREE.Vector3(), _w = new THREE.Vector3();
@@ -1370,44 +1306,16 @@ async function startGame(){
 // ============================= Loop / Update ===============================
 const camTarget=new THREE.Vector3();
 
-function updateCheckpoint() {
-  if (!player || !checkpoints.length) return;
-
-  const pPos = player.position;
-  const playerCenterY = pPos.y;
-
-  // Parameter: horizontaler Radius und vertikale Toleranz
-  const horizThresh = 4.5; // horizontale Reichweite in Metern
-  const horizThreshSq = horizThresh * horizThresh;
-  const verticalTol = 0.25; // der Spieler darf bis zu 0.25m unterhalb des cp.center sein, sonst zählt es nicht
-
-  // Suche alle erreichbaren Checkpoints (in XZ und nicht deutlich darunter)
-  let bestIndex = -1;
-  let bestY = -Infinity;
-  for (let i = 0; i < checkpoints.length; i++) {
-    const cp = checkpoints[i];
-    if (!cp?.pos) continue;
-
-    const dx = pPos.x - cp.pos.x;
-    const dz = pPos.z - cp.pos.z;
-    const distSqXZ = dx * dx + dz * dz;
-    if (distSqXZ > horizThreshSq) continue; // zu weit weg in X/Z
-
-    if (playerCenterY < cp.pos.y - verticalTol) continue; // deutlich unterhalb -> nicht zählt
-
-    // Wir wählen den erreichbaren Checkpoint mit der höchsten Y-Koordinate
-    if (cp.pos.y > bestY) {
-      bestY = cp.pos.y;
-      bestIndex = i;
-    }
+function updateCheckpoint(){
+  if(!player) return;
+  let closest=activeCheckpointIndex, best=Infinity;
+  for(let i=0;i<checkpoints.length;i++){
+    const d=checkpoints[i].pos.distanceToSquared(player.position);
+    if(d<best){ best=d; closest=i; }
   }
-
-  const currentActiveY = checkpoints[activeCheckpointIndex]?.pos?.y ?? -Infinity;
-
-  // Nur updaten, wenn der neue (erreichbare) Checkpoint höher ist als der aktuelle aktive
-  if (bestIndex !== -1 && bestY > currentActiveY + 1e-6) {
-    activeCheckpointIndex = bestIndex;
-    setStatus(`Checkpoint ${activeCheckpointIndex + 1}/${checkpoints.length} erreicht`);
+  if(closest!==activeCheckpointIndex && Math.sqrt(best)<4.5){
+    activeCheckpointIndex=closest;
+    setStatus(`Checkpoint ${activeCheckpointIndex+1}/${checkpoints.length} erreicht`);
   }
 }
 
