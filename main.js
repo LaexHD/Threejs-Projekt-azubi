@@ -236,10 +236,6 @@ function setupLoaders(){
   gltfLoader.setMeshoptDecoder(MeshoptDecoder);
 }
 
-const CHECKPOINT_FLAGS = {
-  unreached: "Flag.glb",
-  reached:   "Flag green.glb"
-};
 
 async function loadCheckpointFlagGLB(path){
   const { g } = await loadGLBWithFallback(expandPathCandidates(path));
@@ -1530,8 +1526,34 @@ function updateCheckpoint() {
   if (bestIndex !== -1 && bestY > currentActiveY + 1e-6) {
     activeCheckpointIndex = bestIndex;
     setStatus(`Checkpoint ${activeCheckpointIndex + 1}/${checkpoints.length} erreicht`);
+    setFlagGreen(checkpoints[activeCheckpointIndex]);
   }
 }
+
+// Funktion zum Setzen einer Flagge auf grün
+function setFlagGreen(cpObj) {
+  if (!cpObj.flagGroup) return;
+
+  // Entferne alte Flaggen-Children
+  while (cpObj.flagGroup.children.length > 0) {
+    cpObj.flagGroup.remove(cpObj.flagGroup.children[0]);
+  }
+
+  // Lade die grüne Flagge
+  const loader = new GLTFLoader();
+  loader.load('Flag green.glb', (gltf) => {
+    const flagModel = gltf.scene;
+
+    // Positionierung passend zum Mast (wie vorher)
+    flagModel.position.set(-0.2, -0.8 , 0);
+    flagModel.rotation.y = Math.PI / 2;
+
+    cpObj.flagGroup.add(flagModel);
+  }, undefined, (error) => {
+    console.error("Fehler beim Laden der grünen Flagge:", error);
+  });
+}
+
 
 function updateCamera(dt){
   if(!player) return;
