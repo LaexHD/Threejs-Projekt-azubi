@@ -236,10 +236,6 @@ function setupLoaders(){
   gltfLoader.setMeshoptDecoder(MeshoptDecoder);
 }
 
-const CHECKPOINT_FLAGS = {
-  unreached: "Flag.glb",
-  reached:   "Flag green.glb"
-};
 
 async function loadCheckpointFlagGLB(path){
   const { g } = await loadGLBWithFallback(expandPathCandidates(path));
