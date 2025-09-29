@@ -95,7 +95,7 @@ UI.btnBack2   ?.addEventListener("click", closeSubPanel);
 
 // Pause-Buttons
 UI.btnResume  ?.addEventListener("click", () => setPaused(false));
-UI.btnRestart ?.addEventListener("click", () => { setPaused(false); player?.respawn(); ensurePointerLock(); });
+UI.btnRestart ?.addEventListener("click", () => { setPaused(false); player?.respawn(0); ensurePointerLock(); });
 UI.btnQuit    ?.addEventListener("click", () => { setPaused(true); setScreen("menu"); });
 
 // ESC toggelt Pause
@@ -255,7 +255,6 @@ async function loadCheckpointFlagGLB(path){
 }
 
 
-
 // ============================= Skybox ======================================
 const SKYBOX_FILES = [
   "Daylight Box_Right.bmp",  // +X
@@ -303,6 +302,9 @@ async function loadSkybox(){
 
 
 // ============================= Game State ==================================
+
+let LAST_PLATFORM_TOP = null;
+
 const clock = new THREE.Clock();
 const keys = new Set();
 const checkpoints = [];
@@ -318,6 +320,68 @@ scene.add(debugStatic);
 let player = null;
 let isPaused = false;
 const setPaused = (v) => { isPaused = v; };
+
+
+// ============== WIN POPUP (kleines Overlay, dynamisch erzeugt) =============
+let winShown = false;
+function createWinPopup(){
+  if (q("#win-popup")) return q("#win-popup");
+  const wrap = document.createElement("div");
+  wrap.id = "win-popup";
+  wrap.setAttribute("role","dialog");
+  wrap.style.position = "fixed";
+  wrap.style.inset = "0";
+  wrap.style.display = "none";
+  wrap.style.alignItems = "center";
+  wrap.style.justifyContent = "center";
+  wrap.style.background = "rgba(0,0,0,0.4)";
+  wrap.style.zIndex = "99999";
+
+  const box = document.createElement("div");
+  box.style.minWidth = "320px";
+  box.style.maxWidth = "90vw";
+  box.style.padding = "20px 24px";
+  box.style.borderRadius = "12px";
+  box.style.background = "white";
+  box.style.color = "#0a0a0a";
+  box.style.boxShadow = "0 10px 30px rgba(0,0,0,0.25)";
+  box.style.textAlign = "center";
+  box.innerHTML = `
+    <h2 style="margin:0 0 8px;font:600 22px/1.2 system-ui,Segoe UI,Roboto">Du hast gewonnen! 🎉</h2>
+    <p style="margin:0 0 14px;font:500 16px/1.35 system-ui,Segoe UI,Roboto">Du hast das Ziel erreicht.</p>
+    <div style="display:flex;gap:10px;justify-content:center;margin-top:6px">
+      <button id="win-restart" style="padding:10px 14px;border-radius:10px;border:none;background:#3b82f6;color:#fff;cursor:pointer;font:600 14px system-ui">Nochmal</button>
+      <button id="win-menu" style="padding:10px 14px;border-radius:10px;border:1px solid #cbd5e1;background:#fff;color:#0f172a;cursor:pointer;font:600 14px system-ui">Menü</button>
+    </div>
+  `;
+  wrap.appendChild(box);
+  document.body.appendChild(wrap);
+
+  q("#win-restart", wrap)?.addEventListener("click", ()=>{
+    wrap.style.display = "none";
+    winShown = false;
+    setPaused(false);
+    player?.respawn(0);
+    setScreen("game");
+    ensurePointerLock();
+  });
+  q("#win-menu", wrap)?.addEventListener("click", ()=>{
+    wrap.style.display = "none";
+    winShown = false;
+    setPaused(true);
+    setScreen("menu");
+  });
+
+  return wrap;
+}
+function showWinPopup(){
+  if (winShown) return;
+  winShown = true;
+  setPaused(true);
+  const wrap = createWinPopup();
+  wrap.style.display = "flex";
+  document.exitPointerLock?.();
+}
 
 
 // ============================= Utils =======================================
@@ -464,20 +528,21 @@ function makeGround(){
   }
 
   // Steine am Rand (nur Optik)
-  const rocks = new THREE.Group(); rocks.position.y = 0; scene.add(rocks);
-  for(let i=0;i<28;i++){
-    const a = (i/28)*Math.PI*2 + Math.random()*0.2;
-    const r = R_TOP - 4 + Math.random()*6;
-    const s = Math.random()*0.9 + 0.6;
-    const rock = new THREE.Mesh(
-      new THREE.IcosahedronGeometry(s, 0),
-      new THREE.MeshStandardMaterial({ color: 0xd7e6ff, roughness: 0.95, metalness: 0.05 })
-    );
-    rock.position.set(Math.cos(a)*r, 0, Math.sin(a)*r);
-    rock.rotation.y = Math.random()*Math.PI*2;
-    rock.castShadow = rock.receiveShadow = true;
-    rocks.add(rock);
-  }
+const rocks = new THREE.Group(); rocks.position.y = 0; scene.add(rocks);
+for(let i=0;i<28;i++){
+  const a = (i/28)*Math.PI*2 + Math.random()*0.2;
+  const r = R_TOP - 4 + Math.random()*6;
+  const s = Math.random()*0.9 + 0.6;
+  const rock = new THREE.Mesh(
+    new THREE.IcosahedronGeometry(s, 0),
+    new THREE.MeshStandardMaterial({ color: 0xd7e6ff, roughness: 0.95, metalness: 0.05 })
+  );
+  rock.position.set(Math.cos(a)*r, 0, Math.sin(a)*r);
+  rock.rotation.y = Math.random()*Math.PI*2;
+  rock.castShadow = rock.receiveShadow = true;
+  rocks.add(rock);
+}
+
 
   // „Büsche“ (Optik)
   const bushes = new THREE.Group(); bushes.position.y = 0; scene.add(bushes);
@@ -541,7 +606,6 @@ async function makeITWorld(modelPack) {
           yaw
         );
 
-
     if (["keyboard"].includes(sel.cat)) {
       res.group.rotation.y = -3;
     }
@@ -549,7 +613,6 @@ async function makeITWorld(modelPack) {
       res.group.rotation.x = -5;
       res.group.rotation.y = -5;
     }
-    
 
     // Kollisionen nach allen Transformationen backen
     res.group.traverse((o) => {
@@ -558,6 +621,16 @@ async function makeITWorld(modelPack) {
 
     // BoundingBox neu berechnen
     res.bbox = new THREE.Box3().setFromObject(res.group);
+    // --- Neu: Top-Center dieser Plattform als "letzte Plattform" merken
+{
+  const topCenter = new THREE.Vector3(
+    (res.bbox.min.x + res.bbox.max.x) * 0.5,
+    res.bbox.max.y,
+    (res.bbox.min.z + res.bbox.max.z) * 0.5
+  );
+  LAST_PLATFORM_TOP = topCenter.clone();
+}
+
 
     return res;
   }
@@ -569,7 +642,7 @@ async function makeITWorld(modelPack) {
   // Push initial checkpoint object (pos = Vector3). Flags werden später in alignCheckpointsToSurface erzeugt/aktualisiert.
   checkpoints.push({ pos: roughCheckpointAbove(startRes), flagGroup: null });
 
-  const stepsTotal = 200;
+  const stepsTotal = 10;
   let angle = 0;
   let prevCenter = startRes.group.position.clone();
   let prevSize = startRes.size.clone();
@@ -671,6 +744,82 @@ function makeBoxPlatform(w=4, h=0.3, d=2, pos=new THREE.Vector3(), yaw=0){
 
   return { group, size:new THREE.Vector3(W,H,D) };
 }
+async function spawnGoalAtTop(){
+  let anchor = LAST_PLATFORM_TOP ? LAST_PLATFORM_TOP.clone() : null;
+  if (!anchor && checkpoints.length){
+    anchor = checkpoints.reduce((a,c)=> c.pos.y > a.y ? c.pos.clone() : a, checkpoints[0].pos.clone());
+  }
+  if (!anchor){
+    console.warn("Kein Anker für das Ziel gefunden – Abbruch.");
+    return;
+  }
+
+  const probe = anchor.clone().add(new THREE.Vector3(0, 3.0, 0));
+  const hit = raycastDownToSurface(probe, 10);
+  const base = hit ? hit.point.clone() : anchor.clone();
+
+  const goalPos = base.clone();
+  goalPos.y += 1.15;
+
+  try{
+    const { g } = await loadGLBWithFallback(expandPathCandidates("Race Flag.glb"));
+    const root = g.scene || g.scenes?.[0];
+    root.traverse(o=>{
+      if(!o.isMesh) return;
+      o.castShadow = o.receiveShadow = true;
+      if (o.material) o.material.side = THREE.FrontSide;
+    });
+
+    // ~2.2m hoch skalieren, Fuß auf y=0
+    const bbox = new THREE.Box3().setFromObject(root);
+    const size = new THREE.Vector3(); bbox.getSize(size);
+    const targetH = 2.2;
+    const scale = size.y > 0.0001 ? (targetH / size.y) : 1;
+    root.scale.setScalar(scale);
+    root.updateMatrixWorld(true);
+    const bbox2 = new THREE.Box3().setFromObject(root);
+    root.position.y += -bbox2.min.y;
+
+    const grp = new THREE.Group();
+    grp.position.copy(goalPos);
+    grp.add(root);
+    grp.name = "GOAL_RACE_FLAG";
+    grp.userData.winRadius = 1.2;
+    scene.add(grp);
+
+    GOAL.group = grp;
+    GOAL.radius = grp.userData.winRadius ?? GOAL.radius;
+
+    setStatus("Ziel auf letzter Plattform platziert!");
+    window.__GOAL_GROUP__ = grp;
+  }catch(e){
+    console.warn("Race Flag konnte nicht geladen werden – Platzhalter:", e);
+    const grp = new THREE.Group();
+    grp.position.copy(goalPos);
+    const pole = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.05,0.05,2.2,14),
+      new THREE.MeshStandardMaterial({color:0xdddddd,metalness:0.6,roughness:0.4})
+    );
+    pole.position.y = 1.1;
+    const flag = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.9,0.6),
+      new THREE.MeshStandardMaterial({color:0x10b981, side:THREE.DoubleSide})
+    );
+    flag.position.set(0.55,1.6,0);
+    flag.rotation.y = Math.PI;
+    grp.add(pole, flag);
+    grp.userData.winRadius = 1.2;
+    grp.name = "GOAL_RACE_FLAG";
+    scene.add(grp);
+
+    GOAL.group = grp;
+    GOAL.radius = grp.userData.winRadius ?? GOAL.radius;
+
+    window.__GOAL_GROUP__ = grp;
+  }
+}
+
+
 
 
 // ============================= Collision World ============================
@@ -690,8 +839,6 @@ function buildWorldCollision(){
   worldCollisionMesh = new THREE.Mesh(merged, new THREE.MeshBasicMaterial({ visible:false }));
   scene.add(worldCollisionMesh);
   // --- NEU: echtes Hitbox-Overlay sichtbar machen --
-  // (gleiche Geometrie, aber transparentes Drahtgitter)
-
   if (collisionDebugMesh){
     debugStatic.remove(collisionDebugMesh);
     collisionDebugMesh.geometry?.dispose?.();
@@ -710,7 +857,6 @@ function buildWorldCollision(){
   collisionDebugMesh = new THREE.Mesh(dbgGeom, dbgMat);
   collisionDebugMesh.renderOrder = 999; // über allem
   debugStatic.add(collisionDebugMesh);
-  // Optional: BVH-Hilfslinien (wie gehabt, nur sichtbar falls gewünscht)
 
   if(DEBUG.SHOW_BVH){
     worldBVHHelper && scene.remove(worldBVHHelper);
@@ -752,31 +898,39 @@ function alignCheckpointsToSurface() {
       cp.y = Math.max(cp.y, (SETTINGS.playerHeight * 0.5) + 0.05);
     }
 
-    // Flagge erzeugen oder aktualisieren (so bleibt sie synchron mit cp.pos)
+    // Flagge (Checkpoint-Markierung) erzeugen, falls noch nicht vorhanden
+    if (!cpObj.flagGroup) {
+      const flagGroup = new THREE.Group();
 
-if (!cpObj.flagGroup) {
-  const flagGroup = new THREE.Group();
+      // einfache Flagge (optional GLB)
+      const loader = new GLTFLoader(loadingManager);
+      loader.load('Flag.glb', (gltf) => {
+        const flagModel = gltf.scene;
+        flagModel.position.set(-0.2, -0.8 , 0);
+        flagModel.rotation.y = Math.PI / 2;
+        flagGroup.add(flagModel);
+      }, undefined, (error) => {
+        console.warn("Flag.glb nicht gefunden – ersetze Checkpoint-Flag mit Platzhalter.");
+        const pole = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.04,0.04,1.8,12),
+          new THREE.MeshStandardMaterial({color:0x9ca3af,metalness:0.6,roughness:0.4})
+        );
+        pole.position.y = 0.9; flagGroup.add(pole);
+        const banner = new THREE.Mesh(
+          new THREE.PlaneGeometry(0.6,0.35),
+          new THREE.MeshStandardMaterial({color:0x60a5fa, side:THREE.DoubleSide})
+        );
+        banner.position.set(0.35,1.5,0);
+        banner.rotation.y = Math.PI;
+        flagGroup.add(banner);
+      });
 
-  // GLB Flagge laden
-  const loader = new GLTFLoader();
-  loader.load('Flag.glb', (gltf) => {
-    const flagModel = gltf.scene;
+      flagGroup.userData.__isCheckpointFlag = true;
+      scene.add(flagGroup);
+      cpObj.flagGroup = flagGroup;
+    }
 
-    // Positionierung passend zum Mast
-    flagModel.position.set(-0.2, -0.8 , 0); 
-    flagModel.rotation.y = Math.PI / 2; 
-
-    flagGroup.add(flagModel);
-  }, undefined, (error) => {
-    console.error("Fehler beim Laden der Flagge:", error);
-  });
-
-  flagGroup.userData.__isCheckpointFlag = true;
-  scene.add(flagGroup);
-  cpObj.flagGroup = flagGroup;
-}
-
-    // immer Position an cp.pos angleichen
+    // Position an cp.pos angleichen
     cpObj.flagGroup.position.copy(cp);
   }
 }
@@ -1233,6 +1387,33 @@ class PlayerController{
 }
 
 
+// ============================= GOAL / ZIEL =================================
+// Lädt und platziert "Race Flag.glb" am höchsten Checkpoint und prüft Kollision.
+const GOAL = {
+  path: "Race Flag.glb",
+  group: null,
+  radius: 1.2, // Trigger-Radius um die Flagge
+  reached: false
+};
+
+// --- WIN: Spieler berührt Zielflagge? ---
+function checkGoalCollision(){
+  if (!GOAL.group || GOAL.reached || !player) return;
+
+  const p = player.position;
+  const g = GOAL.group.position;
+  const r2 = GOAL.radius * GOAL.radius;
+
+  if (p.distanceToSquared(g) <= r2){
+    GOAL.reached = true;
+    setStatus("Ziel erreicht! 🎉");
+    setPaused(true);
+    if (typeof showWinPopup === "function") showWinPopup();
+    else alert("Du hast gewonnen! 🎉");
+  }
+}
+
+
 // ============================= Camera & Input ==============================
 let camYaw=0, camPitch=0.12;
 
@@ -1296,6 +1477,9 @@ async function startGame(){
 
   buildWorldCollision();
   alignCheckpointsToSurface();
+
+  // Ziel oben platzieren
+  await spawnGoalAtTop();
 
   setStatus("Lade Charakter…");
   player = new PlayerController();
@@ -1363,20 +1547,25 @@ const updateLighting = (dt) => { tAccum += dt*0.1; sun.position.set(Math.cos(tAc
 
 function runLoop(){
   renderer.setAnimationLoop(()=>{
-    const dt=Math.min(0.033, clock.getDelta());
+    const dt = Math.min(0.033, clock.getDelta());
 
     if (!isPaused && player){
       player.update(dt, camYaw);
       updateCheckpoint();
       updateLighting(dt);
+
+      // WIN-Check genau einmal nach dem Update:
+      checkGoalCollision();
     }
+
     updateCamera(dt);
 
     debugStatic.visible = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
-    if (worldBVHHelper)        worldBVHHelper.visible        = DEBUG.ENABLED && DEBUG.SHOW_STATIC && DEBUG.SHOW_BVH;
-    if (player?.capsuleHelper) player.capsuleHelper.visible  = DEBUG.ENABLED && DEBUG.SHOW_CAPSULE;
-    if (collisionDebugMesh)    collisionDebugMesh.visible    = DEBUG.ENABLED && DEBUG.SHOW_STATIC; // echte Hitboxen sichtbar
+    if (worldBVHHelper)        worldBVHHelper.visible       = DEBUG.ENABLED && DEBUG.SHOW_STATIC && DEBUG.SHOW_BVH;
+    if (player?.capsuleHelper) player.capsuleHelper.visible = DEBUG.ENABLED && DEBUG.SHOW_CAPSULE;
+    if (collisionDebugMesh)    collisionDebugMesh.visible   = DEBUG.ENABLED && DEBUG.SHOW_STATIC;
 
     renderer.render(scene, camera);
   });
 }
+
