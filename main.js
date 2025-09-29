@@ -541,7 +541,7 @@ async function makeITWorld(modelPack) {
           yaw
         );
 
-    // leichte Rotationsanpassungen nach Kategorie
+
     if (["keyboard"].includes(sel.cat)) {
       res.group.rotation.y = -3;
     }
@@ -569,7 +569,7 @@ async function makeITWorld(modelPack) {
   // Push initial checkpoint object (pos = Vector3). Flags werden später in alignCheckpointsToSurface erzeugt/aktualisiert.
   checkpoints.push({ pos: roughCheckpointAbove(startRes), flagGroup: null });
 
-  const stepsTotal = 50;
+  const stepsTotal = 200;
   let angle = 0;
   let prevCenter = startRes.group.position.clone();
   let prevSize = startRes.size.clone();
