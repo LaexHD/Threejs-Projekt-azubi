@@ -279,3 +279,19 @@ body[data-screen="game"] #hud{ opacity: 1; }
   .screen{ transition: none; transform: none !important; }
   .btn{ transition: none; }
 }
+
+
+/* ===== Timer ================================================= */
+#timer {
+  position: fixed;
+  top: 12px;
+  right: 16px;
+  font-family: monospace;
+  font-size: 1.1rem;
+  padding: 6px 10px;
+  background: rgba(0,0,0,.55);
+  color: #50A42A;        /* gern anpassen */
+  border-radius: 8px;
+  z-index: 9999;
+  user-select: none;
+}

@@ -106,6 +106,35 @@ window.addEventListener("keydown", (e) => {
   if (s === "paused"){ setPaused(false); setScreen("game"); ensurePointerLock(); }
 });
 
+// ============================= Timer (minimal) =============================
+const timerEl = document.getElementById('timer') || (() => {
+  const d = document.createElement('div');
+  d.id = 'timer';
+  d.textContent = '00:00.000';
+  Object.assign(d.style, {
+    position:'fixed', top:'12px', right:'16px',
+    fontFamily:'monospace', fontSize:'1.1rem',
+    padding:'6px 10px', background:'rgba(0,0,0,.55)',
+    color:'#50A42A', borderRadius:'8px', zIndex:9999, userSelect:'none'
+  });
+  document.body.appendChild(d);
+  return d;
+})();
+
+let __tid = null, __t0 = 0;
+const __fmt = (ms) => {
+  const m = Math.floor(ms/60000), s = Math.floor(ms/1000)%60, x = Math.floor(ms%1000);
+  return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(x).padStart(3,'0')}`;
+};
+function startTimer(){
+  __t0 = performance.now();
+  clearInterval(__tid);
+  __tid = setInterval(() => { timerEl.textContent = __fmt(performance.now() - __t0); }, 50);
+}
+function stopTimer(){ clearInterval(__tid); __tid = null; }
+function resetTimer(){ stopTimer(); timerEl.textContent = '00:00.000'; }
+
+
 
 // ============================= Pointer Lock =================================
 let pointerLocked = false;
@@ -371,13 +400,23 @@ function createWinPopup(){
   return wrap;
 }
 function showWinPopup(){
+  stopTimer(); // Timer beim Öffnen stoppen
+
   if (winShown) return;
   winShown = true;
   setPaused(true);
+
   const wrap = createWinPopup();
+
+  // Zeit in den bestehenden Absatz einsetzen
+  const t = document.getElementById('timer')?.textContent || '00:00.000';
+  const msgP = wrap.querySelector('p'); // "Du hast das Ziel erreicht."
+  if (msgP) msgP.textContent = `Du hast das Ziel erreicht. Deine Zeit: ${t}`;
+
   wrap.style.display = "flex";
   document.exitPointerLock?.();
 }
+
 
 
 // ============================= Utils =======================================
@@ -1410,6 +1449,8 @@ function checkGoalCollision(){
 }
 
 
+
+
 // ============================= Camera & Input ==============================
 let camYaw=0, camPitch=0.12;
 
@@ -1480,8 +1521,12 @@ async function startGame(){
   setStatus("Lade Charakter…");
   player = new PlayerController();
 
-  setTimeout(()=> setScreen("game"), 150);
-  runLoop();
+setTimeout(() => {
+  setScreen("game");
+  startTimer();   
+}, 150);
+runLoop();
+
 }
 
 
@@ -1591,3 +1636,7 @@ function runLoop(){
   });
 }
 
+// Timer start
+document.getElementById('btn-start').addEventListener('click', () => {
+  startTimer();
+});
